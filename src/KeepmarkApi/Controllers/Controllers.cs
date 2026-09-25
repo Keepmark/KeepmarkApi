@@ -205,7 +205,8 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
             Keepmark API (.NET 10) — independent, interoperable reimplementation of the
             <a href="https://github.com/xbrowsersync/api">xBrowserSync API</a> v{version}
             (GPL-3.0). Not affiliated with or endorsed by xBrowserSync.
-            Clients never send plaintext: bookmarks stay encrypted end-to-end.
+            Clients never send plaintext: bookmarks stay encrypted end-to-end.<br>
+            Service operator? Drop-in replacement, 10-minute migration, zero user impact.
           </footer>
         </main>
         <script>

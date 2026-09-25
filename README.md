@@ -12,6 +12,8 @@ work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
   `scripts/e2e-v12.sh` (19 checks) against live Mongo, all green.
 - Verified compat matrix: new⇄old clients/servers, concurrent-push chaos —
   see [Testing](#testing).
+- **Run a public service?** Start with [`docs/operators.md`](docs/operators.md):
+  why switch, 10-minute zero-impact migration, FAQ.
 
 ## Layout
 
