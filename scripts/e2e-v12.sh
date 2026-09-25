@@ -1,7 +1,7 @@
 #!/bin/bash
 # v1.2 extended-contract checks + legacy shape regression. DB must be fresh-ish
 # (run after xbs-e2e.sh wipe or standalone; uses its own syncs).
-BASE="${BASE:-http://localhost:8090}"
+BASE="${BASE:-http://localhost:8080}"
 V12="1.2.0"; V11="1.1.13"
 PASS=0; FAIL=0
 chk() { if [ "$2" = "$3" ]; then PASS=$((PASS+1)); echo "ok   $1";
@@ -37,7 +37,7 @@ H=$(curl -s -D - -o /dev/null -H "Accept-Version: $V12" -I "$BASE/bookmarks/$ID"
 chk "head etag" "x" "$(echo "$H" | grep -qi etag && echo x || echo none)"
 chk "head rev header" "2" "$(echo "$H" | grep -i "x-sync-revision" | tr -d '\r' | awk '{print $2}')"
 R=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept-Version: $V11" -I "$BASE/bookmarks/$ID")
-chk "head legacy 412" "412" "$R"
+chk "head legacy 404" "404" "$R"
 HASH2=$(curl -s -H "Accept-Version: $V12" "$BASE/bookmarks/$ID" | J "d['meta']['hash']")
 R=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept-Version: $V12" -H "If-None-Match: \"$HASH2\"" "$BASE/bookmarks/$ID")
 chk "304 on match" "304" "$R"
@@ -46,7 +46,7 @@ chk "200 on mismatch" "200" "$R"
 
 echo "--- DELETE ---"
 R=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept-Version: $V11" -X DELETE "$BASE/bookmarks/$ID")
-chk "delete legacy 412" "412" "$R"
+chk "delete legacy 404" "404" "$R"
 R=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept-Version: $V12" -X DELETE "$BASE/bookmarks/$ID")
 chk "delete ok" "200" "$R"
 R=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept-Version: $V12" "$BASE/bookmarks/$ID")

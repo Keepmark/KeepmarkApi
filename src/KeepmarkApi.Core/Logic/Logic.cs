@@ -82,8 +82,8 @@ public sealed class BookmarksLogic(
         }
     }
 
-    private Task LogNewSyncAsync(string? ip, CancellationToken ct)
-        => settings.DailyNewSyncsLimit > 0 ? logs.CreateLogAsync(ip, ct) : Task.CompletedTask;
+    private Task LogNewSyncAsync(string? ip, DateTime now, CancellationToken ct)
+        => settings.DailyNewSyncsLimit > 0 ? logs.CreateLogAsync(ip, now, ct) : Task.CompletedTask;
 
     public async Task<CreateBookmarksResponse2> CreateV1Async(string bookmarks, string? ip, DateTime now, CancellationToken ct = default)
     {
@@ -92,7 +92,7 @@ public sealed class BookmarksLogic(
         var doc = new StoredBookmark(SyncId.New(), bookmarks, now, now, null,
             Revision: 1, Hash: BlobMeta.HashOf(bookmarks), Size: BlobMeta.SizeOf(bookmarks), CreatedAt: now);
         await store.InsertAsync(doc, ct).ConfigureAwait(false);
-        await LogNewSyncAsync(ip, ct).ConfigureAwait(false);
+        await LogNewSyncAsync(ip, now, ct).ConfigureAwait(false);
         _log.LogInformation("New bookmarks sync created id={Id}", LogSanitizer.SyncId(SyncId.ToString(doc.Id)));
         var res = ExtendedResponses.Create(doc, SyncId.ToString(doc.Id));
         return res;
@@ -105,7 +105,7 @@ public sealed class BookmarksLogic(
         var doc = new StoredBookmark(SyncId.New(), null, now, now, version,
             Revision: 1, Hash: BlobMeta.HashOf(null), Size: 0, CreatedAt: now);
         await store.InsertAsync(doc, ct).ConfigureAwait(false);
-        await LogNewSyncAsync(ip, ct).ConfigureAwait(false);
+        await LogNewSyncAsync(ip, now, ct).ConfigureAwait(false);
         _log.LogInformation("New bookmarks sync created id={Id} version={Version}",
             LogSanitizer.SyncId(SyncId.ToString(doc.Id)), version);
         return ExtendedResponses.Create(doc, SyncId.ToString(doc.Id));
@@ -113,8 +113,10 @@ public sealed class BookmarksLogic(
 
     public async Task<GetBookmarksResponse2> GetAsync(string id, DateTime now, CancellationToken ct = default)
     {
+        // Node validates the ID in the router before checking availability.
+        var idBytes = SyncId.Parse(id);
         CheckServiceAvailable();
-        var doc = await store.TouchAsync(SyncId.Parse(id), now, ct).ConfigureAwait(false);
+        var doc = await store.TouchAsync(idBytes, now, ct).ConfigureAwait(false);
         if (doc is null)
         {
             _log.LogDebug("Get: not found id={Id}", LogSanitizer.SyncId(id));
@@ -125,18 +127,21 @@ public sealed class BookmarksLogic(
         return ExtendedResponses.Get(doc);
     }
 
-    /// <summary>Metadata for HEAD / conditional GET (touches lastAccessed like other reads).</summary>
-    public async Task<StoredBookmark> GetMetadataAsync(string id, DateTime now, CancellationToken ct = default)
+    /// <summary>Metadata for HEAD / conditional GET. Read-only: no lastAccessed
+    /// touch, so pure metadata polling neither extends TTL nor costs a write.</summary>
+    public async Task<StoredBookmark> GetMetadataAsync(string id, CancellationToken ct = default)
     {
+        var idBytes = SyncId.Parse(id);
         CheckServiceAvailable();
-        return await store.TouchAsync(SyncId.Parse(id), now, ct).ConfigureAwait(false)
+        return await store.FindByIdAsync(idBytes, ct).ConfigureAwait(false)
             ?? throw new SyncNotFoundException();
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
     {
+        var idBytes = SyncId.Parse(id);
         CheckServiceAvailable();
-        if (!await store.DeleteAsync(SyncId.Parse(id), ct).ConfigureAwait(false))
+        if (!await store.DeleteAsync(idBytes, ct).ConfigureAwait(false))
         {
             _log.LogDebug("Delete: not found id={Id}", LogSanitizer.SyncId(id));
             throw new SyncNotFoundException();
@@ -147,8 +152,9 @@ public sealed class BookmarksLogic(
 
     public async Task<GetLastUpdatedResponse> GetLastUpdatedAsync(string id, DateTime now, CancellationToken ct = default)
     {
+        var idBytes = SyncId.Parse(id);
         CheckServiceAvailable();
-        var doc = await store.TouchAsync(SyncId.Parse(id), now, ct).ConfigureAwait(false)
+        var doc = await store.TouchAsync(idBytes, now, ct).ConfigureAwait(false)
             ?? throw new SyncNotFoundException();
         _log.LogDebug("GetLastUpdated: ok id={Id} lastUpdated={LastUpdated}",
             LogSanitizer.SyncId(id), SyncTime.ToIsoString(doc.LastUpdated));
@@ -157,77 +163,95 @@ public sealed class BookmarksLogic(
 
     public async Task<GetVersionResponse> GetVersionAsync(string id, DateTime now, CancellationToken ct = default)
     {
+        var idBytes = SyncId.Parse(id);
         CheckServiceAvailable();
-        var doc = await store.TouchAsync(SyncId.Parse(id), now, ct).ConfigureAwait(false)
+        var doc = await store.TouchAsync(idBytes, now, ct).ConfigureAwait(false)
             ?? throw new SyncNotFoundException();
         _log.LogDebug("GetVersion: ok id={Id} version={Version}", LogSanitizer.SyncId(id), doc.Version);
         return new GetVersionResponse { Version = doc.Version };
     }
 
-    public async Task<UpdateBookmarksResponse> UpdateV1Async(string id, string bookmarks, DateTime now, CancellationToken ct = default)
+    public async Task<UpdateBookmarksResponse2> UpdateV1Async(string id, string bookmarks, DateTime now, CancellationToken ct = default)
     {
         now = SyncTime.TruncateToMs(now);
+        var idBytes = SyncId.Parse(id);
         CheckServiceAvailable();
         // Node quirk: missing sync → 200 with {} (no lastUpdated), not 401.
-        var doc = await store.UpdateDataAsync(SyncId.Parse(id), bookmarks, now, ct).ConfigureAwait(false);
+        var doc = await store.UpdateDataAsync(idBytes, bookmarks, now, ct).ConfigureAwait(false);
         if (doc is null)
         {
             _log.LogDebug("UpdateV1: no document id={Id} (returning empty, Node quirk)", LogSanitizer.SyncId(id));
-        }
-        else
-        {
-            _log.LogDebug("UpdateV1: ok id={Id} bytes={Bytes}", LogSanitizer.SyncId(id), bookmarks.Length);
+            return new UpdateBookmarksResponse2();
         }
 
-        return new UpdateBookmarksResponse { LastUpdated = doc?.LastUpdated };
+        _log.LogDebug("UpdateV1: ok id={Id} bytes={Bytes}", LogSanitizer.SyncId(id), bookmarks.Length);
+        return ExtendedResponses.Updated(doc);
     }
 
-    public async Task<UpdateBookmarksResponse2> UpdateV2Async(
+    public Task<UpdateBookmarksResponse2> UpdateV2Async(
         string id, string bookmarks, string? lastUpdated, string? version, DateTime now,
         long? baseRevision = null, CancellationToken ct = default)
     {
         now = SyncTime.TruncateToMs(now);
-        CheckServiceAvailable();
         var idBytes = SyncId.Parse(id);
-
-        // No base at all → legacy path (check existence, then update).
-        if (string.IsNullOrEmpty(lastUpdated) && baseRevision is null)
-        {
-            var found = await store.FindByIdAsync(idBytes, ct).ConfigureAwait(false);
-            if (found is null)
-            {
-                _log.LogDebug("UpdateV2: not found id={Id}", LogSanitizer.SyncId(id));
-                throw new SyncNotFoundException();
-            }
-
-            _log.LogDebug("UpdateV2: no base, updating id={Id}", LogSanitizer.SyncId(id));
-            var doc = await store.UpdateDataV2Async(idBytes, bookmarks, version, now, ct).ConfigureAwait(false);
-            return ExtendedResponses.Updated(doc!);
-        }
+        CheckServiceAvailable();
 
         // Revision base (v1.2) wins over timestamp base when both are sent.
         if (baseRevision is not null)
         {
-            var (revUpdated, revCurrent) = await store.CompareAndSwapByRevisionAsync(
-                idBytes, bookmarks, version, baseRevision.Value, now, ct).ConfigureAwait(false);
-            if (revUpdated is not null)
-            {
-                _log.LogDebug("UpdateV2: revision CAS won id={Id} rev={Rev}",
-                    LogSanitizer.SyncId(id), revUpdated.Revision);
-                return ExtendedResponses.Updated(revUpdated);
-            }
-
-            if (revCurrent is null)
-            {
-                _log.LogDebug("UpdateV2: not found id={Id}", LogSanitizer.SyncId(id));
-                throw new SyncNotFoundException();
-            }
-
-            _log.LogInformation("UpdateV2: revision conflict id={Id} baseRev={Base} currentRev={Current}",
-                LogSanitizer.SyncId(id), baseRevision, revCurrent.Revision);
-            throw new SyncConflictException();
+            return UpdateV2ByRevisionAsync(id, idBytes, bookmarks, version, baseRevision.Value, now, ct);
         }
 
+        // No base at all → legacy path (check existence, then update).
+        if (string.IsNullOrEmpty(lastUpdated))
+        {
+            return UpdateV2NoBaseAsync(id, idBytes, bookmarks, version, now, ct);
+        }
+
+        return UpdateV2ByTimestampAsync(id, idBytes, bookmarks, lastUpdated, version, now, ct);
+    }
+
+    private async Task<UpdateBookmarksResponse2> UpdateV2NoBaseAsync(
+        string id, byte[] idBytes, string bookmarks, string? version, DateTime now, CancellationToken ct)
+    {
+        var found = await store.FindByIdAsync(idBytes, ct).ConfigureAwait(false);
+        if (found is null)
+        {
+            _log.LogDebug("UpdateV2: not found id={Id}", LogSanitizer.SyncId(id));
+            throw new SyncNotFoundException();
+        }
+
+        _log.LogDebug("UpdateV2: no base, updating id={Id}", LogSanitizer.SyncId(id));
+        var doc = await store.UpdateDataV2Async(idBytes, bookmarks, version, now, ct).ConfigureAwait(false);
+        return ExtendedResponses.Updated(doc!);
+    }
+
+    private async Task<UpdateBookmarksResponse2> UpdateV2ByRevisionAsync(
+        string id, byte[] idBytes, string bookmarks, string? version, long baseRevision, DateTime now, CancellationToken ct)
+    {
+        var (revUpdated, revCurrent) = await store.CompareAndSwapByRevisionAsync(
+            idBytes, bookmarks, version, baseRevision, now, ct).ConfigureAwait(false);
+        if (revUpdated is not null)
+        {
+            _log.LogDebug("UpdateV2: revision CAS won id={Id} rev={Rev}",
+                LogSanitizer.SyncId(id), revUpdated.Revision);
+            return ExtendedResponses.Updated(revUpdated);
+        }
+
+        if (revCurrent is null)
+        {
+            _log.LogDebug("UpdateV2: not found id={Id}", LogSanitizer.SyncId(id));
+            throw new SyncNotFoundException();
+        }
+
+        _log.LogInformation("UpdateV2: revision conflict id={Id} baseRev={Base} currentRev={Current}",
+            LogSanitizer.SyncId(id), baseRevision, revCurrent.Revision);
+        throw new SyncConflictException();
+    }
+
+    private async Task<UpdateBookmarksResponse2> UpdateV2ByTimestampAsync(
+        string id, byte[] idBytes, string bookmarks, string lastUpdated, string? version, DateTime now, CancellationToken ct)
+    {
         // Timestamp base (v1.1): parse, then atomic CAS on lastUpdated.
         if (!SyncTime.TryParseInstant(lastUpdated, out var baseTime))
         {
@@ -257,12 +281,12 @@ public sealed class BookmarksLogic(
 }
 
 /// <summary>Abuse-tracking rules mirroring newSyncLogs.service.ts.
-/// expiresAt = start of tomorrow (server local), like moment().add(1,'days').startOf('day').</summary>
+/// expiresAt = start of tomorrow (UTC day boundary).</summary>
 public static class SyncLogRules
 {
     public static bool IsLimitHit(long countForIp, int dailyLimit) => countForIp >= dailyLimit;
 
-    public static DateTime ExpiresAt() => DateTime.Today.AddDays(1);
+    public static DateTime ExpiresAt(DateTime now) => now.ToUniversalTime().Date.AddDays(1);
 }
 
 /// <summary>Extension over ISyncLogStore expressing the Node service defaults
@@ -281,15 +305,14 @@ public static class SyncLogStoreExtensions
         return SyncLogRules.IsLimitHit(count, dailyLimit);
     }
 
-    public static Task CreateLogAsync(this ISyncLogStore logs, string? ip, CancellationToken ct = default)
+    public static Task CreateLogAsync(this ISyncLogStore logs, string? ip, DateTime now, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(ip))
         {
             return Task.CompletedTask;
         }
 
-        var now = DateTime.UtcNow;
-        return logs.AddAsync(ip, SyncLogRules.ExpiresAt(), now, ct);
+        return logs.AddAsync(ip, SyncLogRules.ExpiresAt(now), now, ct);
     }
 }
 
@@ -303,7 +326,7 @@ public sealed class InfoLogic(BookmarksLogic bookmarks, XbsSettings settings, IL
     {
         var info = new ServiceInfoResponse
         {
-            Location = string.IsNullOrEmpty(settings.Location) ? null : settings.Location.ToUpperInvariant(),
+            Location = string.IsNullOrEmpty(settings.Location) ? string.Empty : settings.Location.ToUpperInvariant(),
             MaxSyncSize = settings.MaxSyncSize,
             Message = HtmlSanitizer.StripScripts(settings.Status.Message),
             Status = (int)ServiceStatus.Offline,
@@ -321,8 +344,9 @@ public sealed class InfoLogic(BookmarksLogic bookmarks, XbsSettings settings, IL
             }
             catch (Exception ex)
             {
-                // Node swallows the error and keeps the offline status; verbose shows why.
-                _log.LogDebug(ex, "GetInfo: count failed, reporting offline");
+                // Node swallows the error and keeps the offline status, but a
+                // failing count means the DB is likely down — operators must see it.
+                _log.LogWarning(ex, "GetInfo: count failed, reporting offline");
             }
         }
         else

@@ -6,7 +6,9 @@
     <Nullable>enable</Nullable>
     <RootNamespace>KeepmarkApi</RootNamespace>
     <AssemblyName>KeepmarkApi</AssemblyName>
-    <Version>1.1.13</Version>
+    <!-- Assembly version tracks the served API contract (XbsVersions.ApiVersion),
+         not the package release. -->
+    <Version>1.2.0</Version>
     <!-- This machine has the .NET SDK but no ASP.NET Core shared runtime;
          allow build with the targeting pack only. Deploy self-contained
          (dotnet publish with a linux-x64 RID) or install the

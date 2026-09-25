@@ -55,10 +55,13 @@ public sealed class ApiVersioningTests
     [Theory]
     [InlineData("1.0.0", 1)]
     [InlineData("1.0.9", 1)]
+    [InlineData("1.1.0", 2)]
+    [InlineData("1.1.2", 2)]
     [InlineData("1.1.3", 2)]
     [InlineData("1.1.13", 2)]
     [InlineData("1.2.0", 2)]
     [InlineData("1.8.0", 2)]
+    [InlineData("v1.2.0", 2)]
     public void BookmarksRouteVersion_MapsCorrectly(string header, int expected)
     {
         Assert.Equal(expected, ApiVersioning.BookmarksRouteVersion(header));
@@ -66,8 +69,8 @@ public sealed class ApiVersioningTests
 
     [Theory]
     [InlineData("0.0.0")]
-    [InlineData("1.1.2")]
     [InlineData("2.0.0")]
+    [InlineData("")]
     public void BookmarksRouteVersion_RejectsUnsupported(string header)
     {
         Assert.Throws<UnsupportedVersionException>(() => ApiVersioning.BookmarksRouteVersion(header));

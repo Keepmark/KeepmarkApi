@@ -10,21 +10,18 @@ public static class ApiVersioning
     public static string ResolveHeader(string? header, string serverVersion)
         => string.IsNullOrWhiteSpace(header) ? serverVersion : header.Trim();
 
-    /// <summary>POST|PUT /bookmarks: '~1.0.0' → v1, '^1.1.3' → v2 (see bookmarks.router.ts).</summary>
+    /// <summary>POST|PUT /bookmarks: major 1 + minor 0 → v1 handlers, any other
+    /// 1.x → v2 handlers. Mirrors express-routes-versioning, which compares
+    /// only the major for `^` ranges (so 1.1.0–1.1.2 also hit v2 upstream).</summary>
     public static int BookmarksRouteVersion(string acceptVersion)
     {
-        var (major, minor, patch) = Parse(acceptVersion);
-        if (major == 1 && minor == 0)
+        var (major, minor, _) = Parse(acceptVersion);
+        if (major != 1)
         {
-            return 1; // ~1.0.0: >=1.0.0 <1.1.0
+            throw new UnsupportedVersionException();
         }
 
-        if (major == 1 && (minor > 1 || (minor == 1 && patch >= 3)))
-        {
-            return 2; // ^1.1.3: >=1.1.3 <2.0.0
-        }
-
-        throw new UnsupportedVersionException();
+        return minor == 0 ? 1 : 2;
     }
 
     public static (int Major, int Minor, int Patch) Parse(string version)

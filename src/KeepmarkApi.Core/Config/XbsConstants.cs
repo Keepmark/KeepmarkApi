@@ -9,6 +9,9 @@ public static class XbsVersions
 {
     public const string ApiVersion = "1.2.0";
     public const string MinApiVersion = "1.1.9";
+    /// <summary>Missing Accept-Version header defaults to the last legacy version
+    /// (Node defaulted to its package version 1.1.13) — never the extended contract.</summary>
+    public const string DefaultVersion = "1.1.13";
 }
 
 /// <summary>Status codes mirrored from api/src/common/enums.ts ServiceStatus.</summary>

@@ -56,5 +56,13 @@ public sealed class MongoContext
             new CreateIndexModel<NewSyncLogDocument>(
                 Builders<NewSyncLogDocument>.IndexKeys.Ascending(x => x.IpAddress)),
             cancellationToken: ct).ConfigureAwait(false);
+        // Per-IP daily counting is a CountDocuments per create; the compound
+        // index keeps it an index-only scan as the collection turns over daily.
+        await NewSyncLogs.Indexes.CreateOneAsync(
+            new CreateIndexModel<NewSyncLogDocument>(
+                Builders<NewSyncLogDocument>.IndexKeys
+                    .Ascending(x => x.IpAddress)
+                    .Ascending(x => x.ExpiresAt)),
+            cancellationToken: ct).ConfigureAwait(false);
     }
 }

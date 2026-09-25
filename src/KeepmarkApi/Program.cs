@@ -3,10 +3,12 @@ using System.Threading.RateLimiting;
 using KeepmarkApi.Config;
 using KeepmarkApi.Data;
 using KeepmarkApi.Errors;
+using KeepmarkApi.Json;
 using KeepmarkApi.Logic;
 using KeepmarkApi.Logging;
 using KeepmarkApi.Middleware;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +29,12 @@ builder.Services.AddHostedService<LogLevelWatcher>();
 builder.Logging.SetMinimumLevel(LogLevel.Trace);
 builder.Logging.AddFilter((_, _, level) => level >= gate.MinLevel);
 
+// Console sink honors log.stdout.enabled (default builder already adds it).
+if (!settings.Log.Stdout.Enabled)
+{
+    builder.Logging.ClearProviders();
+}
+
 // File sink (log.file settings). Failures disable it with a warning;
 // the gate still applies on the fly like the console sink.
 if (settings.Log.File.Enabled)
@@ -46,6 +54,7 @@ if (!IsValidLocation(settings.Location))
 builder.WebHost.ConfigureKestrel(kestrel =>
 {
     kestrel.Limits.MaxRequestBodySize = settings.EffectiveMaxSyncSize;
+    kestrel.AddServerHeader = false;
     kestrel.ListenAnyIP(settings.Server.Port, listen =>
     {
         if (settings.Server.Https.Enabled)
@@ -61,11 +70,19 @@ builder.Services.AddScoped<KeepmarkApi.Stores.IBookmarkStore, MongoBookmarkStore
 builder.Services.AddScoped<KeepmarkApi.Stores.ISyncLogStore, MongoSyncLogStore>();
 builder.Services.AddScoped<BookmarksLogic>();
 builder.Services.AddScoped<InfoLogic>();
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    // Malformed JSON must keep the {code,message} contract: let actions run
+    // with an invalid ModelState and map it to Unspecified (Node: 500).
+    options.SuppressModelStateInvalidFilter = true;
+});
 builder.Services.AddControllers().AddJsonOptions(o =>
 {
     o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     o.JsonSerializerOptions.DefaultIgnoreCondition =
         System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    // Whole-second instants keep .000 like JavaScript toISOString().
+    o.JsonSerializerOptions.Converters.Add(new IsoDateTimeConverter());
 });
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 {
@@ -121,9 +138,13 @@ var app = builder.Build();
 
 if (settings.Server.BehindProxy)
 {
+    // Single trusted hop only: longer chains let clients forge X-Forwarded-For
+    // and rotate identities past the throttle/quota. Restrict to known proxies
+    // in stricter deployments (KnownProxies/KnownNetworks).
     app.UseForwardedHeaders(new ForwardedHeadersOptions
     {
         ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+        ForwardLimit = 1,
     });
 }
 
@@ -144,6 +165,8 @@ app.Use(async (ctx, next) =>
     ctx.Response.Headers.XContentTypeOptions = "nosniff";
     ctx.Response.Headers.XFrameOptions = "DENY";
     ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+    ctx.Response.Headers["X-DNS-Prefetch-Control"] = "off";
+    ctx.Response.Headers["Cross-Origin-Resource-Policy"] = "same-origin";
     ctx.Response.Headers.CacheControl = "no-store";
     await next().ConfigureAwait(false);
 });
@@ -154,8 +177,9 @@ if (settings.Throttle.MaxRequests > 0)
     app.UseRateLimiter();
 }
 
-app.UseMiddleware<OriginGuardMiddleware>();
+// ErrorHandler is outer so OriginGuard rejections keep the {code,message} shape.
 app.UseMiddleware<ErrorHandlerMiddleware>();
+app.UseMiddleware<OriginGuardMiddleware>();
 
 // Static brand assets (logo.png, favicon.png). Exact files only —
 // missing paths fall through to controllers and keep the JSON 404 contract.
@@ -186,7 +210,8 @@ app.MapControllers();
 // TTL + ipAddress indexes from api/README.md (plus Mongo connection check).
 try
 {
-    await app.Services.GetRequiredService<MongoContext>().EnsureIndexesAsync().ConfigureAwait(false);
+    await app.Services.GetRequiredService<MongoContext>()
+        .EnsureIndexesAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
 }
 catch (Exception ex)
 {
@@ -224,7 +249,7 @@ static bool IsValidLocation(string location)
         _ = new RegionInfo(location);
         return true;
     }
-    catch
+    catch (ArgumentException)
     {
         return false;
     }

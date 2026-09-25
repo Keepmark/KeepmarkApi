@@ -1,4 +1,5 @@
 #!/bin/bash
+BODY="$(mktemp)"; trap 'rm -f "$BODY"' EXIT
 # E2E parity check vs Node api v1.1.13. Exits non-zero on first mismatch.
 BASE="${BASE:-http://localhost:8080}"
 V="1.1.13"
@@ -35,10 +36,10 @@ L=$(curl -s -H "Accept-Version: $V" "$BASE/bookmarks/$ID/lastUpdated")
 chk "lastUpdated matches" "$LU2" "$(echo "$L" | python3 -c "import json,sys; print(json.load(sys.stdin)['lastUpdated'])")"
 
 echo "--- conflict ---"
-R=$(curl -s -o /tmp/opencode/xbs-body -w "%{http_code}" -H "Accept-Version: $V" -H "Content-Type: application/json" \
+R=$(curl -s -o $BODY -w "%{http_code}" -H "Accept-Version: $V" -H "Content-Type: application/json" \
   -d '{"bookmarks":"blobX","lastUpdated":"1970-01-01T00:00:00.000Z"}' -X PUT "$BASE/bookmarks/$ID")
 chk "stale put status" "409" "$R"
-chk "stale put code" "SyncConflictException" "$(code_of < /tmp/opencode/xbs-body)"
+chk "stale put code" "SyncConflictException" "$(code_of < $BODY)"
 
 echo "--- put with correct base ---"
 R=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept-Version: $V" -H "Content-Type: application/json" \
@@ -49,23 +50,28 @@ echo "--- version ---"
 chk "get version" "1.8.0" "$(curl -s -H "Accept-Version: $V" "$BASE/bookmarks/$ID/version" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")"
 
 echo "--- errors ---"
-R=$(curl -s -o /tmp/opencode/xbs-body -w "%{http_code}" "$BASE/bookmarks/invalidid"); chk "bad id status" "401" "$R"
-chk "bad id code" "InvalidSyncIdException" "$(code_of < /tmp/opencode/xbs-body)"
-R=$(curl -s -o /tmp/opencode/xbs-body -w "%{http_code}" "$BASE/bookmarks/426e20b680054872a46c3e1ce9a2c54e"); chk "missing status" "401" "$R"
-chk "missing code" "SyncNotFoundException" "$(code_of < /tmp/opencode/xbs-body)"
-R=$(curl -s -o /tmp/opencode/xbs-body -w "%{http_code}" -H "Accept-Version: $V" -H "Content-Type: application/json" -d '{}' "$BASE/bookmarks"); chk "empty post" "400" "$R"
-chk "empty post code" "RequiredDataNotFoundException" "$(code_of < /tmp/opencode/xbs-body)"
+R=$(curl -s -o $BODY -w "%{http_code}" "$BASE/bookmarks/invalidid"); chk "bad id status" "401" "$R"
+chk "bad id code" "InvalidSyncIdException" "$(code_of < $BODY)"
+R=$(curl -s -o $BODY -w "%{http_code}" "$BASE/bookmarks/426e20b680054872a46c3e1ce9a2c54e"); chk "missing status" "401" "$R"
+chk "missing code" "SyncNotFoundException" "$(code_of < $BODY)"
+R=$(curl -s -o $BODY -w "%{http_code}" -H "Accept-Version: $V" -H "Content-Type: application/json" -d '{}' "$BASE/bookmarks"); chk "empty post" "400" "$R"
+chk "empty post code" "RequiredDataNotFoundException" "$(code_of < $BODY)"
 R=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept-Version: 0.0.0" -H "Content-Type: application/json" -d '{"bookmarks":"x"}' -X PUT "$BASE/bookmarks/$ID"); chk "unsupported version" "412" "$R"
-R=$(curl -s -o /tmp/opencode/xbs-body -w "%{http_code}" "$BASE/bookmarks"); chk "unknown route" "404" "$R"
-chk "unknown route code" "NotImplementedException" "$(code_of < /tmp/opencode/xbs-body)"
+R=$(curl -s -o $BODY -w "%{http_code}" "$BASE/bookmarks"); chk "unknown route" "404" "$R"
+chk "unknown route code" "NotImplementedException" "$(code_of < $BODY)"
 
 echo "--- v1 compat (Accept-Version 1.0.5) ---"
 C1=$(curl -s -H "Accept-Version: 1.0.5" -H "Content-Type: application/json" -d '{"bookmarks":"v1blob"}' "$BASE/bookmarks")
 chk "v1 create has id" "32" "$(echo "$C1" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['id']))")"
 chk "v1 create no version" "False" "$(echo "$C1" | python3 -c "import json,sys; print('version' in json.load(sys.stdin))")"
-R=$(curl -s -o /tmp/opencode/xbs-body -w "%{http_code}" -H "Accept-Version: 1.0.5" -H "Content-Type: application/json" \
+R=$(curl -s -o $BODY -w "%{http_code}" -H "Accept-Version: 1.0.5" -H "Content-Type: application/json" \
   -d '{"bookmarks":"z"}' -X PUT "$BASE/bookmarks/426e20b680054872a46c3e1ce9a2c54e"); chk "v1 put missing" "200" "$R"
-chk "v1 put missing empty" "{}" "$(cat /tmp/opencode/xbs-body | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin),separators=(',',':')))" )"
+chk "v1 put missing empty" "{}" "$(cat $BODY | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin),separators=(',',':')))" )"
+
+echo "--- malformed body ---"
+R=$(curl -s -o $BODY -w "%{http_code}" -H "Accept-Version: $V" -H "Content-Type: application/json" \
+  -d '{"bookmarks":' "$BASE/bookmarks"); chk "malformed json status" "500" "$R"
+chk "malformed json code" "UnspecifiedException" "$(code_of < $BODY)"
 
 echo "=== pass=$PASS fail=$FAIL ==="
 [ "$FAIL" -eq 0 ]

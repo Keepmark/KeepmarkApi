@@ -12,6 +12,24 @@ public sealed record StoredBookmark(
     long Size = 0,
     DateTime? CreatedAt = null);
 
+/// <summary>Single definition of the write-payload rule (revision bump,
+/// refreshed hash/size, version preserved unless replaced). Used by logic
+/// and fakes; MongoStores.WriteUpdate is its BSON mirror.</summary>
+public static class BookmarkWrites
+{
+    public static StoredBookmark ApplyWrite(StoredBookmark current, string bookmarks, string? version, DateTime now)
+        => current with
+        {
+            Bookmarks = bookmarks,
+            LastAccessed = now,
+            LastUpdated = now,
+            Version = string.IsNullOrEmpty(version) ? current.Version : version,
+            Revision = current.Revision + 1,
+            Hash = Content.BlobMeta.HashOf(bookmarks),
+            Size = Content.BlobMeta.SizeOf(bookmarks),
+        };
+}
+
 public interface IBookmarkStore
 {
     Task InsertAsync(StoredBookmark doc, CancellationToken ct);
@@ -22,8 +40,9 @@ public interface IBookmarkStore
     Task<StoredBookmark?> UpdateDataAsync(byte[] id, string bookmarks, DateTime now, CancellationToken ct);
     Task<StoredBookmark?> UpdateDataV2Async(byte[] id, string bookmarks, string? version, DateTime now, CancellationToken ct);
     /// <summary>Atomic compare-and-swap: updates only when lastUpdated still
-    /// equals the base. Returns (updated, current): updated set on win;
-    /// both null when the sync does not exist; current set on conflict.</summary>
+    /// equals the base. Returns (updated, current): updated set on win (current
+    /// repeats it, ignore it); both null when the sync does not exist; on loss
+    /// updated is null and current is the pre-write document.</summary>
     Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapAsync(
         byte[] id, string bookmarks, string? version, DateTime baseTime, DateTime now, CancellationToken ct);
     /// <summary>Same, but matching on revision instead of timestamp (v1.2 contract).</summary>

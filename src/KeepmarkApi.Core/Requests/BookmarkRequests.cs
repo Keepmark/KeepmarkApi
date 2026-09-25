@@ -47,7 +47,18 @@ public static class BookmarkRequests
     private static string? OptionalString(System.Text.Json.JsonElement body, string name)
         => body.ValueKind == System.Text.Json.JsonValueKind.Object
             && body.TryGetProperty(name, out var el)
-            && el.ValueKind == System.Text.Json.JsonValueKind.String
-            ? el.GetString()
+            ? CoerceScalar(el)
             : null;
+
+    /// <summary>Node/mongoose coerces scalar JSON to strings (42 → "42").
+    /// Objects/arrays stay absent (→ required checks fail / version preserved).</summary>
+    private static string? CoerceScalar(System.Text.Json.JsonElement el)
+        => el.ValueKind switch
+        {
+            System.Text.Json.JsonValueKind.String => el.GetString(),
+            System.Text.Json.JsonValueKind.Number => el.GetRawText(),
+            System.Text.Json.JsonValueKind.True => "true",
+            System.Text.Json.JsonValueKind.False => "false",
+            _ => null,
+        };
 }

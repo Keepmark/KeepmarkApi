@@ -8,7 +8,7 @@ work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
 ## Status
 
 - Contract: v1.1.x frozen (Node parity) + v1.2 extended (opt-in, see below).
-- Tests: 141 xUnit (no infra) + `scripts/e2e-v1.sh` (24 checks) +
+- Tests: 144 xUnit (no infra) + `scripts/e2e-v1.sh` (24 checks) +
   `scripts/e2e-v12.sh` (19 checks) against live Mongo, all green.
 - Verified compat matrix: new⇄old clients/servers, concurrent-push chaos —
   see [Testing](#testing).
@@ -54,7 +54,7 @@ Error shape is always `{code, message}` with the Node status codes.
 |---|---|---|
 | `GET /info` | `{location, maxSyncSize, message, status, version}` | + `capabilities {revision, conditionalGet, delete}` |
 | `POST /bookmarks` | `~1.0.0`: `{bookmarks}` · `^1.1.3`: `{version}` | same, + `meta` in response |
-| `GET /bookmarks/:id` | `{bookmarks, version, lastUpdated}` | + `meta`; honors `If-None-Match` → `304` |
+| `GET /bookmarks/:id` | `{bookmarks, version, lastUpdated}` | + `meta`; honors `If-None-Match` → `304` (ignored outside v1.2) |
 | `PUT /bookmarks/:id` | v1: blind write · v2: `lastUpdated` base check → `409` | + `baseRevision` (atomic CAS on revision, wins over timestamp) |
 | `GET /:id/lastUpdated`, `GET /:id/version` | as Node | unchanged |
 | `HEAD /bookmarks/:id` | `412` | `ETag`, `Last-Modified`, `X-Sync-Revision`, `X-Sync-Size` |
@@ -87,10 +87,11 @@ legacy clients only enforce the minimum (`1.1.9`), so nothing breaks.
 
 `src/KeepmarkApi/appsettings.json` mirrors `api/config/settings.default.json`
 key-for-key. Precedence: `appsettings.json` ← `appsettings.Local.json`
-(git-ignored, hot-reloaded — only `Log`/`Status` sections belong here) ←
+(hot-reloads `Log.Stdout.Level` only — other keys apply at startup) ←
 environment (`__` nests, e.g. `Db__Host=mongo`, `Log__Stdout__Level=debug`).
 Empty `Db.Username/Password` fall back to `XBROWSERSYNC_DB_USER` /
-`XBROWSERSYNC_DB_PWD`.
+`XBROWSERSYNC_DB_PWD`. Never put secrets in `appsettings.Local.json`: it is a
+tracked `{}` placeholder — credentials belong in `.env` (chmod 600).
 
 | Key | Default | Notes |
 |---|---|---|
@@ -116,18 +117,26 @@ dotnet publish src/KeepmarkApi -r linux-x64 --self-contained
 ```
 
 MongoDB needs the `xbrowsersyncdb` user (`readWrite` on the app DB);
-indexes are auto-created at startup.
+indexes are auto-created at startup. Native DB user setup:
+
+```sh
+mongosh --eval "db.getSiblingDB('admin').createUser({user:'xbrowsersyncdb',pwd:'<pwd>',roles:[{role:'readWrite',db:'xbrowsersync'},{role:'readWrite',db:'xbrowsersynctest'}]})"
+```
 
 ## Docker
 
 ```sh
-cp .env.example .env   # set real passwords
+cp .env.example .env   # set real passwords (chmod 600 .env), set API_PORT if 8080 is taken
 # One-time volume ownership (named volumes start root-owned):
 docker run --rm -v keepmarkapi_api-logs:/data alpine chown 1654:1654 /data
 docker run --rm -v keepmarkapi_mongo-dumps:/data alpine chown 999:999 /data
 docker compose up --build -d
-curl localhost:8090/info
+curl localhost:${API_PORT:-8080}/info
 ```
+
+Health: API `HEALTHCHECK` hits `/info`, mongo pings itself; the API waits for
+a healthy mongo (`depends_on: service_healthy`). Container stdout is capped
+(`max-size 10m`, 3 files per service).
 
 Notes: the API listens on 8080 in-container (mapped via `API_PORT`, default
 `8080` — here `8090` to avoid a host clash). Home-directory encryption on some
@@ -160,12 +169,21 @@ disables itself with a warning.
 ### Mongo backup
 
 ```sh
-./scripts/mongo-backup.sh   # mongodump of both DBs into mongo-dumps, keeps 7
+./scripts/mongo-backup.sh   # mongodump of xbrowsersync into mongo-dumps, keeps 7
 ```
 
 Cron: `0 3 * * * cd /path/to/KeepmarkApi && ./scripts/mongo-backup.sh`.
 List: `docker compose exec mongo ls /dump`.
-Fetch: `docker cp keepmarkapi-mongo-1:/dump/<stamp> ./restores/`.
+Fetch: `docker compose cp mongo:/dump/<stamp> ./restores/`.
+Restore (indexes are recreated by the API at startup):
+
+```sh
+docker compose exec -T mongo sh -c 'mongorestore -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --drop --db xbrowsersync /dump/<stamp>/xbrowsersync'
+```
+
+Set `INCLUDE_TEST_DB=1` to also dump `xbrowsersynctest` (skipped by default).
+DB passwords apply at **first init only** (`mongo-init/` runs on empty volumes):
+rotating them later needs `db.updateUser()` in mongosh, then a restart.
 
 ### TLS
 
@@ -181,8 +199,8 @@ seconds. Tune `throttle.*`; `0` disables (restart to apply).
 ## Testing
 
 ```sh
-dotnet test                                # 141 xUnit, no infra
-BASE=http://localhost:8090 ./scripts/e2e-v1.sh    # 24 contract checks, live
+dotnet test                                # 144 xUnit, no infra
+BASE=http://localhost:8090 ./scripts/e2e-v1.sh`    # 26 contract checks, live checks, live
 BASE=http://localhost:8090 ./scripts/e2e-v12.sh   # 19 v1.2 checks, live
 ```
 

@@ -16,19 +16,28 @@ public sealed class RotatingFileLoggerProvider : ILoggerProvider
     private readonly LogLevelGate _gate;
     private readonly int _keep;
     private readonly TimeSpan _period;
+    private readonly Func<DateTime> _clock;
     private readonly object _sync = new();
     private StreamWriter? _writer;
     private DateTime _periodStart;
     private bool _disabled;
 
     public RotatingFileLoggerProvider(string path, string level, string rotationPeriod, int keep, LogLevelGate gate)
+        : this(path, level, rotationPeriod, keep, gate, null)
+    {
+    }
+
+    /// <param name="clock">Override for deterministic tests (defaults to local now).</param>
+    public RotatingFileLoggerProvider(
+        string path, string level, string rotationPeriod, int keep, LogLevelGate gate, Func<DateTime>? clock)
     {
         _path = path;
         _baseLevel = XbsLogLevels.Parse(level);
         _keep = Math.Max(0, keep);
         _period = PeriodParser.Parse(rotationPeriod);
         _gate = gate;
-        _periodStart = PeriodParser.StartOf(DateTime.Now, _period);
+        _clock = clock ?? (() => DateTime.Now);
+        _periodStart = PeriodParser.StartOf(_clock(), _period);
     }
 
     public ILogger CreateLogger(string categoryName) => new FileLogger(this, categoryName);
@@ -49,7 +58,7 @@ public sealed class RotatingFileLoggerProvider : ILoggerProvider
             return false;
         }
 
-        if (_writer is not null && PeriodParser.StartOf(DateTime.Now, _period) == _periodStart)
+        if (_writer is not null && PeriodParser.StartOf(_clock(), _period) == _periodStart)
         {
             return true;
         }
@@ -71,7 +80,7 @@ public sealed class RotatingFileLoggerProvider : ILoggerProvider
             {
                 AutoFlush = true,
             };
-            _periodStart = PeriodParser.StartOf(DateTime.Now, _period);
+            _periodStart = PeriodParser.StartOf(_clock(), _period);
             return true;
         }
         catch (Exception ex)

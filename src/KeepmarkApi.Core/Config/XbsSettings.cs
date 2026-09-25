@@ -14,7 +14,6 @@ public sealed class XbsSettings
     public long MaxSyncSize { get; set; } = 512000;
     public ServerSettings Server { get; set; } = new();
     public StatusSettings Status { get; set; } = new();
-    public TestsSettings Tests { get; set; } = new();
     public ThrottleSettings Throttle { get; set; } = new();
 
     /// <summary>Effective body limit: Node uses `maxSyncSize || 512000` (0 falls back to default).</summary>
@@ -75,12 +74,6 @@ public sealed class XbsSettings
         public bool AllowNewSyncs { get; set; } = true;
         public string Message { get; set; } = string.Empty;
         public bool Online { get; set; } = true;
-    }
-
-    public sealed class TestsSettings
-    {
-        public string Db { get; set; } = "xbrowsersynctest";
-        public int Port { get; set; } = 8081;
     }
 
     public sealed class ThrottleSettings

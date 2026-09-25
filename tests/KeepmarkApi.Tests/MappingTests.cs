@@ -109,9 +109,12 @@ public sealed class MappingTests
     {
         Assert.Equal("blob", BookmarkRequests.ParseCreateV1(Body("""{"bookmarks":"blob"}""")));
         Assert.Equal("1.8.0", BookmarkRequests.ParseCreateV2(Body("""{"version":"1.8.0"}""")));
+        // Node/mongoose coerces scalar JSON to strings (42 → "42").
+        Assert.Equal("42", BookmarkRequests.ParseCreateV2(Body("""{"version":42}""")));
+        Assert.Equal("true", BookmarkRequests.ParseCreateV1(Body("""{"bookmarks":true}""")));
         Assert.Throws<RequiredDataNotFoundException>(() => BookmarkRequests.ParseCreateV1(Body("""{}""")));
         Assert.Throws<RequiredDataNotFoundException>(() => BookmarkRequests.ParseCreateV1(Body("""{"bookmarks":""}""")));
-        Assert.Throws<RequiredDataNotFoundException>(() => BookmarkRequests.ParseCreateV2(Body("""{"version":42}""")));
+        Assert.Throws<RequiredDataNotFoundException>(() => BookmarkRequests.ParseCreateV1(Body("""{"bookmarks":{}}""")));
     }
 
     [Fact]
@@ -271,7 +274,7 @@ public sealed class MappingTests
         var store = new FakeBookmarkStore();
         var idBytes = SyncId.New();
         var id = SyncId.ToString(idBytes);
-        store.Seed(new KeepmarkApi.Stores.StoredBookmark(idBytes, "b",
+        store.SeedLegacy(new KeepmarkApi.Stores.StoredBookmark(idBytes, "b",
             new DateTime(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc), "1.1.13"));
         var log = new TestLogger<BookmarksLogic>();

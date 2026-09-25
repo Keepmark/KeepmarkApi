@@ -25,10 +25,10 @@ public sealed class LogicTests
         return (new BookmarksLogic(store, logs, s), store, logs);
     }
 
-    private static string Seed(FakeBookmarkStore store, string? bookmarks = "blob", string? version = "1.1.13")
+    private static string SeedLegacy(FakeBookmarkStore store, string? bookmarks = "blob", string? version = "1.1.13")
     {
         var id = SyncId.New();
-        store.Seed(new KeepmarkApi.Stores.StoredBookmark(id, bookmarks, Earlier, Earlier, version));
+        store.SeedLegacy(new KeepmarkApi.Stores.StoredBookmark(id, bookmarks, Earlier, Earlier, version));
         return SyncId.ToString(id);
     }
 
@@ -98,7 +98,7 @@ public sealed class LogicTests
     {
         var s = Settings(s => s.MaxSyncs = 1);
         var (logic, store, _) = Make(s);
-        Seed(store);
+        SeedLegacy(store);
         await Assert.ThrowsAsync<NewSyncsForbiddenException>(() => logic.CreateV1Async("d", null, Now));
     }
 
@@ -144,7 +144,7 @@ public sealed class LogicTests
     public async Task Get_ReturnsBlobAndTouchesAccessed()
     {
         var (logic, store, _) = Make(Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var res = await logic.GetAsync(id, Now);
         Assert.Equal("blob", res.Bookmarks);
         Assert.Equal("1.1.13", res.Version);
@@ -181,7 +181,7 @@ public sealed class LogicTests
     {
         var (logic, _, _) = Make(Settings());
         var store = new FakeBookmarkStore();
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var logic2 = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
         Assert.Equal(Earlier, (await logic2.GetLastUpdatedAsync(id, Now)).LastUpdated);
         Assert.Equal("1.1.13", (await logic2.GetVersionAsync(id, Now)).Version);
@@ -202,7 +202,7 @@ public sealed class LogicTests
     public async Task UpdateV1_UpdatesAndReturnsNewDate()
     {
         var (logic, store, _) = Make(Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var res = await logic.UpdateV1Async(id, "new-blob", Now);
         Assert.Equal(Now, res.LastUpdated);
         Assert.Equal("new-blob", (await store.FindByIdAsync(SyncId.Parse(id), default))!.Bookmarks);
@@ -222,7 +222,7 @@ public sealed class LogicTests
     public async Task UpdateV2_MatchingBaseUpdates()
     {
         var (logic, store, _) = Make(Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var res = await logic.UpdateV2Async(id, "nb", SyncTime.ToIsoString(Earlier), "1.8.0", Now);
         Assert.Equal(Now, res.LastUpdated);
         var saved = await store.FindByIdAsync(SyncId.Parse(id), default);
@@ -234,7 +234,7 @@ public sealed class LogicTests
     {
         var (logic, _, _) = Make(Settings());
         var store = new FakeBookmarkStore();
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var logic2 = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
         var res = await logic2.UpdateV2Async(id, "nb", null, null, Now);
         Assert.Equal(Now, res.LastUpdated);
@@ -245,7 +245,7 @@ public sealed class LogicTests
     public async Task UpdateV2_NullVersionPreservesExisting()
     {
         var store = new FakeBookmarkStore();
-        var id = Seed(store, version: "1.1.13");
+        var id = SeedLegacy(store, version: "1.1.13");
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
         await logic.UpdateV2Async(id, "nb", SyncTime.ToIsoString(Earlier), null, Now);
         Assert.Equal("1.1.13", (await store.FindByIdAsync(SyncId.Parse(id), default))!.Version);
@@ -256,7 +256,7 @@ public sealed class LogicTests
     {
         var (logic, _, _) = Make(Settings());
         var store = new FakeBookmarkStore();
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var logic2 = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
         await Assert.ThrowsAsync<SyncConflictException>(() =>
             logic2.UpdateV2Async(id, "nb", "1970-01-01T00:00:00.000Z", null, Now));
@@ -276,7 +276,7 @@ public sealed class LogicTests
     {
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var res = await logic.UpdateV2Async(id, "first", KeepmarkApi.Time.SyncTime.ToIsoString(Earlier), null, Now);
         Assert.Equal(Now, res.LastUpdated);
         // Same stale base again → conflict, first write intact.
@@ -290,7 +290,7 @@ public sealed class LogicTests
     {
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         await Assert.ThrowsAsync<SyncConflictException>(() =>
             logic.UpdateV2Async(id, "x", "not-a-date", null, Now));
         Assert.Equal("blob", (await store.FindByIdAsync(SyncId.Parse(id), default))!.Bookmarks);
@@ -315,7 +315,7 @@ public sealed class LogicTests
     {
         var s = Settings(s => s.MaxSyncs = 1);
         var store = new FakeBookmarkStore();
-        Seed(store);
+        SeedLegacy(store);
         var info = await new InfoLogic(new BookmarksLogic(store, new FakeSyncLogStore(), s), s).GetInfoAsync();
         Assert.Equal(3, info.Status);
     }
@@ -357,7 +357,7 @@ public sealed class LogicTests
     {
         var s = Settings();
         var info = await new InfoLogic(new BookmarksLogic(new FakeBookmarkStore(), new FakeSyncLogStore(), s), s).GetInfoAsync();
-        Assert.Null(info.Location);
+        Assert.Equal(string.Empty, info.Location);
         Assert.Equal(string.Empty, info.Message);
     }
 
@@ -381,7 +381,7 @@ public sealed class LogicTests
     {
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var before = (await store.FindByIdAsync(SyncId.Parse(id), default))!.Revision;
         var res = await logic.UpdateV2Async(id, "newdata", KeepmarkApi.Time.SyncTime.ToIsoString(Earlier), null, Now);
         Assert.Equal(before + 1, res.Meta!.Revision);
@@ -394,7 +394,7 @@ public sealed class LogicTests
     {
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var rev0 = (await store.FindByIdAsync(SyncId.Parse(id), default))!.Revision;
         var res = await logic.UpdateV2Async(id, "a", null, null, Now, baseRevision: rev0);
         Assert.Equal(rev0 + 1, res.Meta!.Revision);
@@ -408,7 +408,7 @@ public sealed class LogicTests
     {
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var rev0 = (await store.FindByIdAsync(SyncId.Parse(id), default))!.Revision;
         // Stale timestamp but correct revision → revision governs, update wins.
         var res = await logic.UpdateV2Async(id, "a", "1970-01-01T00:00:00.000Z", null, Now, baseRevision: rev0);
@@ -420,7 +420,7 @@ public sealed class LogicTests
     {
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         await logic.DeleteAsync(id);
         Assert.Null(await store.FindByIdAsync(SyncId.Parse(id), default));
         await Assert.ThrowsAsync<SyncNotFoundException>(() => logic.DeleteAsync(id));
@@ -432,11 +432,11 @@ public sealed class LogicTests
     {
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store);
-        var meta = await logic.GetMetadataAsync(id, Now);
+        var id = SeedLegacy(store);
+        var meta = await logic.GetMetadataAsync(id);
         Assert.Equal("blob", meta.Bookmarks);
         await Assert.ThrowsAsync<SyncNotFoundException>(() =>
-            logic.GetMetadataAsync(SyncId.ToString(SyncId.New()), Now));
+            logic.GetMetadataAsync(SyncId.ToString(SyncId.New())));
     }
 
     [Fact]
@@ -445,7 +445,7 @@ public sealed class LogicTests
         // Syncs written by pre-1.2 servers have no metadata; served as-is until next write.
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store); // Seed uses record defaults: revision 0, no hash
+        var id = SeedLegacy(store); // Seed uses record defaults: revision 0, no hash
         var res = await logic.GetAsync(id, Now);
         Assert.Equal(0, res.Meta!.Revision);
         Assert.Null(res.Meta.Hash);
@@ -458,7 +458,7 @@ public sealed class LogicTests
     {
         var store = new FakeBookmarkStore();
         var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
-        var id = Seed(store);
+        var id = SeedLegacy(store);
         var before = await store.FindByIdAsync(SyncId.Parse(id), default);
         var res = await logic.UpdateV1Async(id, "v1new", Now);
         Assert.NotNull(res.LastUpdated);
@@ -475,7 +475,7 @@ public sealed class LogicTests
         // Seed a v1.2-era doc (createdAt set at creation, like CreateV1Async does).
         var idBytes = SyncId.New();
         var id = SyncId.ToString(idBytes);
-        store.Seed(new KeepmarkApi.Stores.StoredBookmark(idBytes, "blob", Earlier, Earlier, "1.1.13",
+        store.SeedLegacy(new KeepmarkApi.Stores.StoredBookmark(idBytes, "blob", Earlier, Earlier, "1.1.13",
             Revision: 3, Hash: "h", Size: 4, CreatedAt: Earlier));
         await logic.UpdateV2Async(id, "x", null, null, Now); // rev 3→4, createdAt untouched
         var t1 = Now.AddMinutes(5);

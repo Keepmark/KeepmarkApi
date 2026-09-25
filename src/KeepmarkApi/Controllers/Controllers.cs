@@ -13,11 +13,11 @@ namespace KeepmarkApi.Controllers;
 
 internal static class VersionHeader
 {
-    // Missing header defaults to the server version (server.ts: req.version = header || version).
+    // Missing header defaults to the last legacy version (Node: package version).
     public static string Resolve(HttpRequest request)
         => ApiVersioning.ResolveHeader(
             request.Headers.TryGetValue("Accept-Version", out var v) ? v.ToString() : null,
-            XbsVersions.ApiVersion);
+            XbsVersions.DefaultVersion);
 }
 
 /// <summary>Routes mirror api/src/routers/bookmarks.router.ts.
@@ -27,13 +27,25 @@ internal static class VersionHeader
 public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksController> log) : ControllerBase
 {
     private string? Ip => HttpContext.Connection.RemoteIpAddress?.ToString();
-    private bool Extended => ApiVersioning.IsExtendedContract(VersionHeader.Resolve(Request));
+    private string Accepted => VersionHeader.Resolve(Request);
+    private bool Extended => ApiVersioning.IsExtendedContract(Accepted);
+
+    private static void RequireValidBody(ControllerBase c)
+    {
+        // Malformed JSON must keep the {code,message} contract (Node: 500 Unspecified).
+        if (!c.ModelState.IsValid)
+        {
+            throw new UnspecifiedException();
+        }
+    }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] JsonElement body, CancellationToken ct)
     {
+        RequireValidBody(this);
+        var route = ApiVersioning.BookmarksRouteVersion(Accepted);
         var now = DateTime.UtcNow;
-        if (ApiVersioning.BookmarksRouteVersion(VersionHeader.Resolve(Request)) == 1)
+        if (route == 1)
         {
             var res = await logic.CreateV1Async(BookmarkRequests.ParseCreateV1(body), Ip, now, ct).ConfigureAwait(false);
             log.LogInformation("New bookmarks sync created");
@@ -48,10 +60,12 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
     [HttpGet("{id}")]
     public async Task<IActionResult> Get(string id, CancellationToken ct)
     {
+        EnsureMajorOne();
         // v1.2 conditional GET: matching content hash → 304, no body.
+        // Precheck is read-only (no touch); the full read below touches once.
         if (Extended && Request.Headers.TryGetValue("If-None-Match", out var tag))
         {
-            var meta = await logic.GetMetadataAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false);
+            var meta = await logic.GetMetadataAsync(id, ct).ConfigureAwait(false);
             if (meta.Hash is not null && string.Equals(tag.ToString().Trim('"'), meta.Hash, StringComparison.OrdinalIgnoreCase))
             {
                 return StatusCode(304);
@@ -66,8 +80,12 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
     public async Task<IActionResult> Head(string id, CancellationToken ct)
     {
         EnsureExtended();
-        var meta = await logic.GetMetadataAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false);
-        Response.Headers["ETag"] = $"\"{meta.Hash}\"";
+        var meta = await logic.GetMetadataAsync(id, ct).ConfigureAwait(false);
+        if (meta.Hash is not null)
+        {
+            Response.Headers["ETag"] = $"\"{meta.Hash}\"";
+        }
+
         Response.Headers["Last-Modified"] = SyncTime.ToIsoString(meta.LastUpdated);
         Response.Headers["X-Sync-Revision"] = meta.Revision.ToString();
         Response.Headers["X-Sync-Size"] = meta.Size.ToString();
@@ -85,14 +103,17 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] JsonElement body, CancellationToken ct)
     {
-        var (bookmarks, lastUpdated, version) = BookmarkRequests.ParseUpdate(body);
-        if (ApiVersioning.BookmarksRouteVersion(VersionHeader.Resolve(Request)) == 1)
+        RequireValidBody(this);
+        var route = ApiVersioning.BookmarksRouteVersion(Accepted);
+        if (route == 1)
         {
+            var (bookmarks, _, _) = BookmarkRequests.ParseUpdate(body);
             return Ok(await logic.UpdateV1Async(id, bookmarks, DateTime.UtcNow, ct).ConfigureAwait(false));
         }
 
+        var (bookmarks2, lastUpdated, version) = BookmarkRequests.ParseUpdate(body);
         long? baseRevision = Extended ? BookmarkRequests.ParseBaseRevision(body) : null;
-        var res = await logic.UpdateV2Async(id, bookmarks, lastUpdated, version, DateTime.UtcNow, baseRevision, ct)
+        var res = await logic.UpdateV2Async(id, bookmarks2, lastUpdated, version, DateTime.UtcNow, baseRevision, ct)
             .ConfigureAwait(false);
         return Ok(Extended ? res : ResponseShapes.Strip(res));
     }
@@ -100,30 +121,32 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
     [HttpGet("{id}/lastUpdated")]
     public async Task<IActionResult> GetLastUpdated(string id, CancellationToken ct)
     {
-        EnsureVersionSupported("1.0.0");
+        EnsureMajorOne();
         return Ok(await logic.GetLastUpdatedAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false));
     }
 
     [HttpGet("{id}/version")]
     public async Task<IActionResult> GetVersion(string id, CancellationToken ct)
     {
-        EnsureVersionSupported("1.1.3");
+        EnsureMajorOne();
         return Ok(await logic.GetVersionAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false));
     }
 
-    private void EnsureVersionSupported(string minimum)
+    /// <summary>Node's ^ ranges match any 1.x (naive major compare); anything else 412s.</summary>
+    private void EnsureMajorOne()
     {
-        if (ApiVersioning.Compare(VersionHeader.Resolve(Request), minimum) < 0)
+        if (ApiVersioning.Parse(Accepted).Major != 1)
         {
             throw new UnsupportedVersionException();
         }
     }
 
+    /// <summary>Unknown to legacy servers: Node answers its 404 catch-all, not 412.</summary>
     private void EnsureExtended()
     {
         if (!Extended)
         {
-            throw new UnsupportedVersionException();
+            throw new RouteNotImplementedException();
         }
     }
 }
@@ -159,8 +182,16 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
     [HttpGet("favicon.ico")]
     public IActionResult Favicon()
     {
-        var path = Path.Combine(env.WebRootPath, "favicon.png");
-        return System.IO.File.Exists(path) ? PhysicalFile(path, "image/png") : NoContent();
+        if (!string.IsNullOrEmpty(env.WebRootPath))
+        {
+            var path = Path.Combine(env.WebRootPath, "favicon.png");
+            if (System.IO.File.Exists(path))
+            {
+                return PhysicalFile(path, "image/png");
+            }
+        }
+
+        return NoContent();
     }
 
     private const string LandingPage = """

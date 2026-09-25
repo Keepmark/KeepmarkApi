@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using KeepmarkApi.Content;
 using KeepmarkApi.Logging;
 using KeepmarkApi.Models;
 using KeepmarkApi.Stores;
+using KeepmarkApi.Uuid;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
@@ -36,7 +38,8 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
             CreatedAt = doc.CreatedAt,
         };
 
-    /// <summary>v1.2 write payload: data + revision bump + refreshed hash/size.</summary>
+    /// <summary>v1.2 write payload: data + revision bump + refreshed hash/size.
+    /// BSON mirror of Core BookmarkWrites.ApplyWrite (same rule, driver form).</summary>
     private static UpdateDefinition<BookmarkDocument> WriteUpdate(string bookmarks, string? version, DateTime now)
     {
         var update = Builders<BookmarkDocument>.Update
@@ -44,8 +47,8 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
             .Set(x => x.LastAccessed, now)
             .Set(x => x.LastUpdated, now)
             .Inc(x => x.Revision, 1)
-            .Set(x => x.Hash, KeepmarkApi.Content.BlobMeta.HashOf(bookmarks))
-            .Set(x => x.Size, KeepmarkApi.Content.BlobMeta.SizeOf(bookmarks));
+            .Set(x => x.Hash, BlobMeta.HashOf(bookmarks))
+            .Set(x => x.Size, BlobMeta.SizeOf(bookmarks));
         if (!string.IsNullOrEmpty(version))
         {
             update = update.Set(x => x.Version, version);
@@ -69,14 +72,14 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
     }
 
     public Task InsertAsync(StoredBookmark doc, CancellationToken ct)
-        => Timed<object?>("insert", Uuid.SyncId.ToString(doc.Id), async () =>
+        => Timed<object?>("insert", SyncId.ToString(doc.Id), async () =>
         {
             await mongo.Bookmarks.InsertOneAsync(ToDocument(doc), cancellationToken: ct).ConfigureAwait(false);
             return null;
         });
 
     public Task<StoredBookmark?> FindByIdAsync(byte[] id, CancellationToken ct)
-        => Timed("findById", Uuid.SyncId.ToString(id),
+        => Timed("findById", SyncId.ToString(id),
             async () =>
             {
                 var doc = await mongo.Bookmarks.Find(ById(id)).FirstOrDefaultAsync(ct).ConfigureAwait(false);
@@ -84,7 +87,7 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
             });
 
     public Task<StoredBookmark?> TouchAsync(byte[] id, DateTime now, CancellationToken ct)
-        => Timed("touch", Uuid.SyncId.ToString(id),
+        => Timed("touch", SyncId.ToString(id),
             async () =>
             {
                 var doc = await mongo.Bookmarks.FindOneAndUpdateAsync(
@@ -96,18 +99,14 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
             });
 
     public Task<StoredBookmark?> UpdateDataAsync(byte[] id, string bookmarks, DateTime now, CancellationToken ct)
-        => Timed("updateV1", Uuid.SyncId.ToString(id),
-            async () =>
-            {
-                var doc = await mongo.Bookmarks.FindOneAndUpdateAsync(
-                    ById(id), WriteUpdate(bookmarks, null, now),
-                    new FindOneAndUpdateOptions<BookmarkDocument> { ReturnDocument = ReturnDocument.After },
-                    ct).ConfigureAwait(false);
-                return doc is null ? null : ToRecord(doc);
-            });
+        => UpdateAsync(id, bookmarks, null, now, "updateV1", ct);
 
     public Task<StoredBookmark?> UpdateDataV2Async(byte[] id, string bookmarks, string? version, DateTime now, CancellationToken ct)
-        => Timed("updateV2", Uuid.SyncId.ToString(id),
+        => UpdateAsync(id, bookmarks, version, now, "updateV2", ct);
+
+    private Task<StoredBookmark?> UpdateAsync(
+        byte[] id, string bookmarks, string? version, DateTime now, string op, CancellationToken ct)
+        => Timed(op, SyncId.ToString(id),
             async () =>
             {
                 var doc = await mongo.Bookmarks.FindOneAndUpdateAsync(

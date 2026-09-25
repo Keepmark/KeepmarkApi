@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text.Json;
 using KeepmarkApi.Config;
 using KeepmarkApi.Errors;
@@ -28,7 +27,7 @@ public sealed class ErrorHandlerMiddleware(RequestDelegate next, ILogger<ErrorHa
                 && (ctx.Response.ContentLength is null or 0))
             {
                 var (status, code, message) = ErrorMap.Map(new RouteNotImplementedException());
-                await WriteAsync(ctx, status, code, message).ConfigureAwait(false);
+                await WriteAsync(ctx, status, code, message, ctx.RequestAborted).ConfigureAwait(false);
             }
         }
         catch (XbsException ex)
@@ -46,10 +45,10 @@ public sealed class ErrorHandlerMiddleware(RequestDelegate next, ILogger<ErrorHa
             if (!ctx.Response.HasStarted)
             {
                 var (status, code, message) = ErrorMap.Map(ex);
-                await WriteAsync(ctx, status, code, message).ConfigureAwait(false);
+                await WriteAsync(ctx, status, code, message, ctx.RequestAborted).ConfigureAwait(false);
             }
         }
-        catch (Exception ex) when (ex is not XbsException)
+        catch (Exception ex)
         {
             Exception mapped = ex is BadHttpRequestException bad && bad.StatusCode == 413
                 ? new SyncDataLimitExceededException()
@@ -62,12 +61,12 @@ public sealed class ErrorHandlerMiddleware(RequestDelegate next, ILogger<ErrorHa
             if (!ctx.Response.HasStarted)
             {
                 var (status, code, message) = ErrorMap.Map(mapped);
-                await WriteAsync(ctx, status, code, message).ConfigureAwait(false);
+                await WriteAsync(ctx, status, code, message, ctx.RequestAborted).ConfigureAwait(false);
             }
         }
     }
 
-    private static Task WriteAsync(HttpContext ctx, int status, string code, string message)
+    private static Task WriteAsync(HttpContext ctx, int status, string code, string message, CancellationToken ct)
     {
         ctx.Response.StatusCode = status;
         ctx.Response.ContentType = "application/json";
@@ -75,7 +74,7 @@ public sealed class ErrorHandlerMiddleware(RequestDelegate next, ILogger<ErrorHa
         {
             Code = code,
             Message = message,
-        }, Json));
+        }, Json), ct);
     }
 }
 

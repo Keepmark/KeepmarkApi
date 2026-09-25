@@ -13,7 +13,8 @@ public sealed class FakeBookmarkStore : IBookmarkStore
 
     private static string Key(byte[] id) => Convert.ToHexString(id);
 
-    public void Seed(StoredBookmark doc) => Docs[Key(doc.Id)] = doc;
+    /// <summary>Seeds a pre-1.2 document: revision 0, no hash/size/createdAt.</summary>
+    public void SeedLegacy(StoredBookmark doc) => Docs[Key(doc.Id)] = doc;
 
     public Task InsertAsync(StoredBookmark doc, CancellationToken ct)
     {
@@ -38,16 +39,7 @@ public sealed class FakeBookmarkStore : IBookmarkStore
     }
 
     private static StoredBookmark WithWrite(StoredBookmark d, string bookmarks, string? version, DateTime now)
-        => d with
-        {
-            Bookmarks = bookmarks,
-            LastAccessed = now,
-            LastUpdated = now,
-            Version = string.IsNullOrEmpty(version) ? d.Version : version,
-            Revision = d.Revision + 1,
-            Hash = KeepmarkApi.Content.BlobMeta.HashOf(bookmarks),
-            Size = KeepmarkApi.Content.BlobMeta.SizeOf(bookmarks),
-        };
+        => KeepmarkApi.Stores.BookmarkWrites.ApplyWrite(d, bookmarks, version, now);
 
     public Task<StoredBookmark?> UpdateDataAsync(byte[] id, string bookmarks, DateTime now, CancellationToken ct)
     {
@@ -81,14 +73,14 @@ public sealed class FakeBookmarkStore : IBookmarkStore
             return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, null));
         }
 
-        if (d.LastUpdated != baseTime)
+        if (Time.SyncTime.TruncateToMs(d.LastUpdated) != Time.SyncTime.TruncateToMs(baseTime))
         {
             return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, d));
         }
 
         var updated = WithWrite(d, bookmarks, version, now);
         Docs[Key(id)] = updated;
-        return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((updated, d));
+        return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((updated, updated));
     }
 
     public Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapByRevisionAsync(
@@ -106,7 +98,7 @@ public sealed class FakeBookmarkStore : IBookmarkStore
 
         var updated = WithWrite(d, bookmarks, version, now);
         Docs[Key(id)] = updated;
-        return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((updated, d));
+        return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((updated, updated));
     }
 
     public Task<bool> DeleteAsync(byte[] id, CancellationToken ct)

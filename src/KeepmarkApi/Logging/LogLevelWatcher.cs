@@ -11,9 +11,9 @@ public sealed class LogLevelWatcher(
     LogLevelGate gate,
     ILogger<LogLevelWatcher> log) : BackgroundService
 {
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        settings.OnChange(s =>
+        using var subscription = settings.OnChange(s =>
         {
             var level = XbsLogLevels.Parse(s.Log.Stdout.Level);
             if (level != gate.MinLevel)
@@ -22,6 +22,14 @@ public sealed class LogLevelWatcher(
                 log.LogInformation("Log level changed to {Level} (on the fly)", XbsLogLevels.Name(level));
             }
         });
-        return Task.CompletedTask;
+
+        try
+        {
+            await Task.Delay(Timeout.Infinite, stoppingToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Host shutting down: subscription disposed above.
+        }
     }
 }

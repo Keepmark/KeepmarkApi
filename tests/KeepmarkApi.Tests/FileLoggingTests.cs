@@ -32,26 +32,26 @@ public sealed class FileLoggingTests
     }
 
     [Fact]
-    public void FileLogger_WritesAndRotates()
+    public void FileLogger_RotatesDeterministically_WithInjectedClock()
     {
         var dir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         var path = Path.Combine(dir, "api.log");
         var gate = new LogLevelGate { MinLevel = LogLevel.Trace };
-        using var provider = new RotatingFileLoggerProvider(path, "debug", "1ms", 2, gate);
+        var now = new DateTime(2026, 9, 25, 12, 0, 0);
+        var clock = () => now;
+        using var provider = new RotatingFileLoggerProvider(path, "debug", "1h", 2, gate, clock);
         var log = provider.CreateLogger("test");
-        log.LogInformation("hello");
-        log.LogDebug("detail");
-        static string AllText(string p) => string.Concat(
-            Directory.GetFiles(Path.GetDirectoryName(p)!, Path.GetFileName(p) + "*").Select(File.ReadAllText));
-        Assert.Contains("hello", AllText(path));
-        // Force rollover by aging the period: many rapid writes cross 1ms windows.
-        for (var i = 0; i < 200; i++)
-        {
-            log.LogInformation("line {N}", i);
-        }
-
-        Assert.True(File.Exists(path + ".1") || File.Exists(path + ".2") || new FileInfo(path).Length > 0);
+        log.LogInformation("first-hour");
+        now = now.AddHours(2); // cross into a new period, then another
+        log.LogInformation("third-hour");
+        now = now.AddHours(2);
+        log.LogInformation("fifth-hour");
+        Assert.True(File.Exists(path));
+        Assert.True(File.Exists(path + ".1"));
+        Assert.True(File.Exists(path + ".2"));
         Assert.False(File.Exists(path + ".3"), "retention must drop files beyond keep");
+        Assert.Contains("first-hour", File.ReadAllText(path + ".2"));
+        Assert.Contains("fifth-hour", File.ReadAllText(path));
     }
 
     [Fact]
@@ -72,6 +72,11 @@ public sealed class FileLoggingTests
     [Fact]
     public void FileLogger_UnwritablePathDisablesItself()
     {
+        if (!OperatingSystem.IsLinux())
+        {
+            return; // /proc trick is Linux-only
+        }
+
         var gate = new LogLevelGate();
         // /proc is not writable: must not throw, must swallow logs.
         using var provider = new RotatingFileLoggerProvider("/proc/xbs-test/api.log", "debug", "1d", 1, gate);
