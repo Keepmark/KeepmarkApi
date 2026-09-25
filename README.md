@@ -1,166 +1,218 @@
-# KeepmarkApi — .NET 10 rewrite of the xBrowserSync API (v1.1.13 parity)
+# KeepmarkApi — .NET 10 sync service (xBrowserSync-compatible)
 
-ASP.NET Core port of `../api` (Node + Express + Mongoose). Same wire contract,
-same error shape `{code,message}`, same Mongo layout — old `app/` clients and
-`Keepmark` / `KeepmarkApp` keep working unchanged. **No v2 extensions here**
-(no `revision`/`hash`/crypto-suite): parity first.
+ASP.NET Core port of [`../api`](../api) (Node + Express + Mongoose), extended with
+an opt-in **v1.2** contract. Same Mongo layout and byte-identical v1.1 shapes —
+existing clients (`../app`, `../Keepmark`, `../KeepmarkApp`, official clients)
+work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
+
+## Status
+
+- Contract: v1.1.x frozen (Node parity) + v1.2 extended (opt-in, see below).
+- Tests: 141 xUnit (no infra) + `scripts/e2e-v1.sh` (24 checks) +
+  `scripts/e2e-v12.sh` (19 checks) against live Mongo, all green.
+- Verified compat matrix: new⇄old clients/servers, concurrent-push chaos —
+  see [Testing](#testing).
 
 ## Layout
 
-- `src/KeepmarkApi` (net10.0, `Microsoft.NET.Sdk.Web`)
-  - `Program.cs` — hosting: Kestrel limits (`MaxSyncSize`), CORS, per-IP fixed-window
-    throttle, `ForwardedHeaders` iff `BehindProxy`, security + `no-store` headers,
-    `Accept-Version` routing, error mapping, redacted request log, Mongo index bootstrap.
-  - `Controllers/` — `BookmarksController` (`POST|GET|PUT /bookmarks…`,
-    `GET /:id/lastUpdated`, `GET /:id/version`), `InfoController` (`GET /info`),
-    `RootController` (placeholder — Node serves the webpack docs site at `/`).
-  - `Services/` — `BookmarksService`, `InfoService`, `NewSyncLogsService`
-    (logic mirrors `bookmarks/info/newSyncLogs.service.ts`, quirks included:
-    v1 update on missing sync returns `200 {}`).
-  - `Config/` — `XbsSettings` (1:1 with `settings.default.json`) + `XbsVersions`.
-  - `Data/` — `MongoContext` (connection string builder + `newsynclogs`
-    `expiresAt` TTL and `ipAddress` indexes from `api/README.md`).
+- `src/KeepmarkApi` (net10.0, `Microsoft.NET.Sdk.Web`) — hosting + adapters:
+  - `Program.cs` — Kestrel (`MaxSyncSize` cap), CORS, per-IP fixed-window throttle
+    (+ `Retry-After`), `ForwardedHeaders` iff `BehindProxy`, HSTS iff direct HTTPS,
+    security + `no-store` headers, hot verbosity gate, redacted settings dump,
+    Mongo index bootstrap.
+  - `Controllers/` — `BookmarksController` (CRUD + `HEAD`, conditional `GET`,
+    contract shaping legacy/extended), `InfoController` (`/info` + v1.2
+    `capabilities`), `RootController` (landing page with logo, status, credits).
+  - `Data/` — `MongoContext` (connection builder, `XBROWSERSYNC_DB_*` fallback,
+    TTL + `ipAddress` indexes) + `MongoStores` (timed operations).
   - `Middleware/` — `ErrorHandlerMiddleware` (`XbsException` → status,
-    413 → `SyncDataLimitExceeded`, rest → `Unspecified`), `OriginGuardMiddleware`.
-  - `Models/` — `BookmarkDocument` (`_id` = BSON Binary subtype 4, 16 RFC 4122 bytes),
-    `NewSyncLogDocument`.
-  - `Logging/` — `LogSanitizer` (sync IDs truncated in logs; IDs are bearer tokens).
-- `src/KeepmarkApi.Core` (net10.0, runtime-free) — `Errors`, `Uuid/SyncId`,
-  `Routing/ApiVersioning`, `Text/HtmlSanitizer`. No ASP.NET Core reference so unit
-  tests run anywhere.
-- `tests/KeepmarkApi.Tests` (xUnit, 18 tests, no Mongo) — SyncId, version routing,
-  script-stripping.
-
-## Config
-
-`src/KeepmarkApi/appsettings.json` mirrors `api/config/settings.default.json`
-(same keys). Local overrides: `appsettings.Local.json` (git-ignored) or env vars.
-Empty `Db.Username/Password` fall back to `XBROWSERSYNC_DB_USER` / `XBROWSERSYNC_DB_PWD`.
-
-## Run
-
-This machine has the SDK but **no** `Microsoft.AspNetCore.App` shared runtime, so:
-
-```sh
-# dev machine with the ASP.NET Core runtime:
-dotnet run --project src/KeepmarkApi
-# here / deploy: self-contained (bundles the runtime)
-dotnet publish src/KeepmarkApi -r linux-x64 --self-contained
-```
-
-Needs MongoDB with the `xbrowsersyncdb` user + indexes per `../api/README.md`
-(indexes are also auto-created at startup). E2E against Mongo is still to be done.
+    body-too-large → 413, routing 404/405 → 404 shape, rest → 500),
+    `OriginGuardMiddleware` (exact-string origins only).
+  - `Models/` — `BookmarkDocument` (`_id` = BSON Binary subtype 4, 16 RFC 4122
+    bytes — never `Guid`), `NewSyncLogDocument`.
+  - `Logging/` — `LogLevelWatcher` (on-the-fly level switch, no restart).
+  - `wwwroot/` — `logo.png`, `favicon.png` (from `../Keepmark/brand`).
+- `src/KeepmarkApi.Core` (net10.0, runtime-free — no ASP.NET Core reference):
+  `Config` (settings + versions), `Errors` (+ `ErrorMap`), `Uuid/SyncId`,
+  `Routing/ApiVersioning`, `Text/HtmlSanitizer`, `Time/SyncTime`, `Stores`
+  (contracts), `Content/BlobMeta`, `Logic` (rules), `Requests` (body validation),
+  `Shaping/ResponseShapes` (legacy freeze), `Logging` (levels, gate, sanitizer,
+  rotating file sink).
+- `tests/KeepmarkApi.Tests` (xUnit) — in-memory fakes, full rule matrix.
+- `scripts/` — `e2e-v1.sh`, `e2e-v12.sh` (curl contract checks),
+  `mongo-backup.sh`.
+- `mongo-init/01-create-user.sh` — least-privilege DB user on first init.
 
 ## API contracts
 
-- **v1.1.x** (`Accept-Version: 1.1.9`–`1.1.13`): frozen Node parity. Shapes are
-  byte-identical to the original; the server reports `1.2.0` in `/info.version`
-  but old clients only enforce the minimum, so nothing breaks.
-- **v1.2** (`Accept-Version: ^1.2.0`, opt-in): same endpoints plus
-  `meta {revision, hash, size, createdAt}` on create/get/update,
-  `PUT` accepting `baseRevision` (atomic CAS on revision instead of timestamp),
-  `HEAD /bookmarks/:id` (`ETag`, `Last-Modified`, `X-Sync-Revision`,
-  `X-Sync-Size`), conditional `GET` via `If-None-Match` → `304`,
-  `DELETE /bookmarks/:id`, and `capabilities` in `/info`.
-  `revision` starts at 1 and bumps on every write (any contract);
-  `hash` = SHA-256 of the ciphertext; old syncs show `revision: 0` until
-  their next write (no backfill, by design).
+Negotiation via the `Accept-Version` header (missing → server version).
+Error shape is always `{code, message}` with the Node status codes.
 
-## Logging & verbosity
+| Call | v1.1 | v1.2 (`^1.2.0`) |
+|---|---|---|
+| `GET /info` | `{location, maxSyncSize, message, status, version}` | + `capabilities {revision, conditionalGet, delete}` |
+| `POST /bookmarks` | `~1.0.0`: `{bookmarks}` · `^1.1.3`: `{version}` | same, + `meta` in response |
+| `GET /bookmarks/:id` | `{bookmarks, version, lastUpdated}` | + `meta`; honors `If-None-Match` → `304` |
+| `PUT /bookmarks/:id` | v1: blind write · v2: `lastUpdated` base check → `409` | + `baseRevision` (atomic CAS on revision, wins over timestamp) |
+| `GET /:id/lastUpdated`, `GET /:id/version` | as Node | unchanged |
+| `HEAD /bookmarks/:id` | `412` | `ETag`, `Last-Modified`, `X-Sync-Revision`, `X-Sync-Size` |
+| `DELETE /bookmarks/:id` | `412` | `200`, sync removed |
+| `GET /` | landing page (logo, live status, credits) | same |
 
-Levels mirror bunyan (`trace|debug|info|warn|error|fatal`), configured at
-`Log.Stdout.Level` (`Log.File.Level` is parsed but no file sink is wired yet).
+`meta = {revision, hash, size, createdAt}`. `revision` starts at 1 and bumps on
+**every** write under any contract; `hash` = SHA-256 of the ciphertext (opaque
+to the server); old syncs report `revision: 0` with no hash until their next
+write (no backfill, by design). The server reports `1.2.0` in `/info.version`;
+legacy clients only enforce the minimum (`1.1.9`), so nothing breaks.
 
-- `info` (default): request summary lines (`METHOD path status ms`), creations,
-  refusals, conflicts, 5xx errors.
-- `debug`/`trace` (verbose): every decision with values (version routing,
-  quota counts, limit checks, base vs current timestamps on conflict), per-request
-  details (IP, `Accept-Version`, byte sizes, timing), per-Mongo-op timings,
-  effective-settings dump at startup.
-- Never logged: bookmark bodies, passwords/keys, full sync IDs (truncated
-  `ab12…ef` — IDs are bearer tokens). The DB password is excluded from the dump.
+### Sync model and guarantees
 
-Change it statically (`appsettings.json`, `appsettings.Local.json`, or env
-`Log__Stdout__Level=debug`) or **on the fly without restart**: the verbosity
-gate re-reads settings on reload, so editing the watched
-`appsettings.Local.json` applies within seconds (the change itself is logged).
+- Whole-blob optimistic concurrency. v1 `PUT` has no base check (silent
+  last-writer-wins, Node quirk, preserved). v2 checks are **atomic**
+  (`findOneAndUpdate` filtered on `_id` + base): concurrent same-base pushes
+  resolve to exactly one `200` + one `409` — verified live (`[200,409]` vs
+  Node's `[200,200]`).
+- Timestamps are millisecond-precision (`toISOString` format). The server
+  truncates writes to ms and compares instants, not strings, so equivalent
+  spellings (`.87` vs `.870`) agree; unparseable bases conflict.
+- `GET` (all forms) refreshes `lastAccessed` (TTL source). Missing sync →
+  `401 SyncNotFoundException` (Node convention, kept). Malformed ID → `401
+  InvalidSyncIdException`.
+- The server never sees plaintext and cannot merge: conflict resolution is
+  always client-side (pull, merge locally, push with fresh base).
+
+## Configuration
+
+`src/KeepmarkApi/appsettings.json` mirrors `api/config/settings.default.json`
+key-for-key. Precedence: `appsettings.json` ← `appsettings.Local.json`
+(git-ignored, hot-reloaded — only `Log`/`Status` sections belong here) ←
+environment (`__` nests, e.g. `Db__Host=mongo`, `Log__Stdout__Level=debug`).
+Empty `Db.Username/Password` fall back to `XBROWSERSYNC_DB_USER` /
+`XBROWSERSYNC_DB_PWD`.
+
+| Key | Default | Notes |
+|---|---|---|
+| `AllowedOrigins` | `[]` (all) | exact strings only (no `RegExp`) |
+| `DailyNewSyncsLimit` | `3` | per IP/day, `0` disables |
+| `Db.*` | `127.0.0.1:27017/xbrowsersync`, `authSource=admin` | `UseSrv` for `mongodb+srv://` |
+| `Location` | `""` | ISO country code, uppercased in `/info` |
+| `Log.Stdout.Level` / `Log.File.*` | `info` / file on | `trace/debug/info/warn/error/fatal` |
+| `MaxSyncs` / `MaxSyncSize` | `5242` / `512000` | `0` = unlimited syncs / 512 kB body cap |
+| `Server.Host/Port/RelativePath` | `127.0.0.1:8080/` | Kestrel binds `AnyIP:Port` |
+| `Server.BehindProxy` | `false` | trust `X-Forwarded-For` **only** behind a proxy |
+| `Server.Https.*` | disabled | direct HTTPS + HSTS; else terminate at a proxy |
+| `Status.*` | online, new syncs ok | `message` supports markdown, scripts stripped |
+| `Throttle.*` | `1000` / 5 min | per IP, `0` disables, `Retry-After` on 429 |
+
+## Run
+
+```sh
+# Native (needs the ASP.NET Core runtime + MongoDB):
+dotnet run --project src/KeepmarkApi
+# Self-contained:
+dotnet publish src/KeepmarkApi -r linux-x64 --self-contained
+```
+
+MongoDB needs the `xbrowsersyncdb` user (`readWrite` on the app DB);
+indexes are auto-created at startup.
 
 ## Docker
 
 ```sh
 cp .env.example .env   # set real passwords
-touch appsettings.Local.json  # only if missing ({} is committed as placeholder)
-# One-time volume ownership (named volumes are root-owned by default):
+# One-time volume ownership (named volumes start root-owned):
 docker run --rm -v keepmarkapi_api-logs:/data alpine chown 1654:1654 /data
 docker run --rm -v keepmarkapi_mongo-dumps:/data alpine chown 999:999 /data
 docker compose up --build -d
 curl localhost:8090/info
 ```
 
-Verbosity in Docker, two ways:
+Notes: the API listens on 8080 in-container (mapped via `API_PORT`, default
+`8080` — here `8090` to avoid a host clash). Home-directory encryption on some
+hosts breaks container **writes** on bind mounts, hence named volumes for logs
+and dumps. `appsettings.Local.json` is mounted for hot edits (log level).
 
-1. Static: `LOG_LEVEL=debug` in `.env`, then `docker compose up -d` (recreate).
-2. On the fly: edit the mounted `appsettings.Local.json` on the host, e.g.
-   `{"Log":{"Stdout":{"Level":"trace"}}}`, wait a few seconds, watch
-   `docker compose logs -f api`. Revert the file to go back. Only `Log`
-   (and display-only `Status`) sections belong there; DB/auth come from env.
+## Logging & verbosity
 
-Mongo data persists in the `mongo-data` volume; the app user
-(`xbrowsersyncdb`) is created once at first init by
-`mongo-init/01-create-user.sh`. The API also creates the TTL (`expiresAt`) +
-`ipAddress` indexes at startup.
+Levels mirror bunyan. `info` (default): request summaries, creations, refusals,
+conflicts, 5xx. `debug`/`trace`: every decision with values, per-request
+details (IP, version header, byte sizes), per-Mongo-op timings, settings dump.
+Bodies, keys and full sync IDs are never logged (IDs truncated `ab12…ef`; DB
+password excluded from the dump).
 
-## Tests
-
-```sh
-dotnet test   # 109 xUnit tests, no Mongo/Docker needed
-```
-
-`KeepmarkApi.Core` is runtime-free (logic, stores contracts, versioning, levels,
-redaction) so the whole rule matrix runs anywhere against in-memory fakes;
-only the thin Mongo adapters and middleware need a live server (e2e pending).
-
-## Known limitations (parity gaps, deliberate)
-
-- `AllowedOrigins` supports exact strings only (Node also accepts `RegExp`).
-- `Location` validation uses `RegionInfo` instead of the `country-list` package.
+Change statically (`Log__Stdout__Level=debug` / `LOG_LEVEL` in Docker) or **on
+the fly**: edit the watched `appsettings.Local.json`
+(`{"Log":{"Stdout":{"Level":"trace"}}}`) — applies in seconds, the change is
+logged. Only the log level is hot; throttle and the rest need a restart.
 
 ## Operations
 
 ### File logs
 
-`log.file` settings are honored: path, level, `rotationPeriod` (`1d`, `12h`,
-`hourly`… — Node format) and `rotatedFilesToKeep` (`api.log` → `api.log.0` →
-`api.log.1`…). The gate still applies, so on-the-fly level changes affect the
-file too. In Docker the path is preset to `/app/logs/api.log` (named volume `api-logs`;
-home-dir encryption blocks container writes on bind mounts here). Read with
-`docker compose exec api cat /app/logs/api.log`. If the path is not writable
-the sink disables itself with a warning.
+`log.file` settings honored: path, level, `rotationPeriod` (`1d`, `12h`,
+`hourly`…, Node format), `rotatedFilesToKeep` (`api.log` → `.0` → `.1`…).
+In Docker: `/app/logs/api.log` (`api-logs` volume); read with
+`docker compose exec api cat /app/logs/api.log`. Unwritable path → sink
+disables itself with a warning.
 
 ### Mongo backup
 
 ```sh
-./scripts/mongo-backup.sh   # mongodump of both DBs into the mongo-dumps volume, keeps 7
+./scripts/mongo-backup.sh   # mongodump of both DBs into mongo-dumps, keeps 7
 ```
 
 Cron: `0 3 * * * cd /path/to/KeepmarkApi && ./scripts/mongo-backup.sh`.
 List: `docker compose exec mongo ls /dump`.
 Fetch: `docker cp keepmarkapi-mongo-1:/dump/<stamp> ./restores/`.
-Restore: `mongorestore` the dump dir into `xbrowsersync` with the app user.
 
 ### TLS
 
-Two supported layouts (the API speaks plain HTTP inside Docker by default):
+1. **Proxy (recommended):** terminate at Caddy/nginx/Traefik, set
+   `Server__BehindProxy=true` so IPs are real. HSTS is the proxy's job.
+2. **Direct:** mount cert+key, set `Server__Https__*`; the API emits HSTS itself.
 
-1. TLS proxy in front (recommended): terminate at Caddy/nginx/Traefik, set
-   `Server.BehindProxy=true` (`Server__BehindProxy=true`) so client IPs come
-   from `X-Forwarded-For` for throttle + abuse logs. HSTS is the proxy's job.
-2. Direct HTTPS: mount cert+key and set `Server.Https.Enabled/CertPath/KeyPath`
-   (`Server__Https__*`); the API then also emits HSTS itself.
+### Rate limits
 
-### Rate-limit tuning
+Per-IP fixed window, `429 {code:RequestThrottledException}` + `Retry-After`
+seconds. Tune `throttle.*`; `0` disables (restart to apply).
 
-`throttle.maxRequests` per `throttle.timeWindow` (defaults `1000` / 5 min),
-per client IP. Rejections are `429 {code:RequestThrottledException}` with a
-`Retry-After` header (seconds to window reset). `0` disables. Note: throttle
-values are read at startup (restart to apply); only the log level is hot.
+## Testing
+
+```sh
+dotnet test                                # 141 xUnit, no infra
+BASE=http://localhost:8090 ./scripts/e2e-v1.sh    # 24 contract checks, live
+BASE=http://localhost:8090 ./scripts/e2e-v12.sh   # 19 v1.2 checks, live
+```
+
+`Core` is runtime-free, so the whole rule matrix (quotas, limits, CAS win/lose,
+revision lifecycle, legacy shape freeze, levels, redaction) runs against
+in-memory fakes. Live-only: real-concurrency races and HTTP middleware — covered
+by the scripts plus the chaos harness (`rev-race` → `[200,409]`).
+
+Verified compat matrix:
+
+| | Node 1.1.13 server | KeepmarkApi 1.2.0 |
+|---|---|---|
+| v1.1 contract (24) | 24/24 | 24/24 |
+| .NET client live (6) | 6/6 (legacy fallback) | 6/6 (v1.2 negotiated) |
+| v1.2 contract (19) | n/a | 19/19 |
+| same-base race | `[200,200]` (upstream bug) | `[200,409]` |
+
+## Security & anonymity notes
+
+- Sync IDs are bearer tokens: truncated in logs, never in error details beyond
+  the code/message contract.
+- No auth by design (capability URLs); brute force is infeasible (122-bit IDs)
+  but IDs must stay secret — URLs leak into proxies/history.
+- Passphrase strength is entirely client-side; the server cannot help and
+  must stay zero-knowledge (no verifiers stored).
+- `OriginNotPermitted` (500) only when `AllowedOrigins` is non-empty and the
+  `Origin` mismatches; CORS `AllowAny*` when empty (Node parity).
+- Dependencies: `MongoDB.Driver` only (+ test SDK). No Node, no Mongoose.
+
+## Known limitations (deliberate)
+
+- `AllowedOrigins`: exact strings only (Node also accepts `RegExp`).
+- `Location` validated via `RegionInfo`, not `country-list`.
+- v1 `PUT` has no conflict detection (upstream quirk, frozen).
+- No per-sync quota accounting beyond the global body cap.
