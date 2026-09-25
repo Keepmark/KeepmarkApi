@@ -1,0 +1,49 @@
+# .NET / ASP.NET Core — KeepmarkApi
+
+## Build outputs
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+*.user
+*.suo
+
+## NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/
+project.lock.json
+artifacts/
+
+## MSBuild
+[Dd]ebug/
+[Rr]elease/
+[Bb]uild/
+[Pp]ublish/
+
+## Test results / coverage
+[Tt]est[Rr]esult*/
+TestResult.xml
+*.coverage
+*.coveragexml
+coverage*/
+
+## IDE
+.vs/
+.vscode/*/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Local overrides (user settings, certs — never commit)
+src/KeepmarkApi/appsettings.Local.json
+*.pfx
+*.pem
+*.key

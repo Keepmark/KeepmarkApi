@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>KeepmarkApi</RootNamespace>
+    <AssemblyName>KeepmarkApi</AssemblyName>
+    <Version>1.1.13</Version>
+    <!-- This machine has the .NET SDK but no ASP.NET Core shared runtime;
+         allow build with the targeting pack only. Deploy self-contained
+         (dotnet publish with a linux-x64 RID) or install the
+         Microsoft.AspNetCore.App runtime. -->
+    <AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" Version="3.12.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KeepmarkApi.Core\KeepmarkApi.Core.csproj" />
+  </ItemGroup>
+
+</Project>
