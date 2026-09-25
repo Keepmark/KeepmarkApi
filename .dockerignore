@@ -1,0 +1,15 @@
+bin/
+obj/
+out/
+.vs/
+.idea/
+.git/
+.gitignore
+*.user
+*.suo
+TestResults/
+coverage*/
+docker-compose.override.yml
+.env
+appsettings.Local.json
+mongo-data/

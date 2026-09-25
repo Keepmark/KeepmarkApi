@@ -47,3 +47,6 @@ src/KeepmarkApi/appsettings.Local.json
 *.pfx
 *.pem
 *.key
+
+# Local secrets (never commit)
+.env

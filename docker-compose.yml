@@ -1,0 +1,42 @@
+# KeepmarkApi stack: API (.NET 10) + MongoDB 7.
+# First run: cp .env.example .env  (set real passwords), then docker compose up --build
+services:
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      # Consumed by ./mongo-init/01-create-user.sh on first init:
+      XBROWSERSYNC_DB_USER: ${XBROWSERSYNC_DB_USER}
+      XBROWSERSYNC_DB_PWD: ${XBROWSERSYNC_DB_PWD}
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      # .NET maps __ to config sections (Db__Host == Db.Host in appsettings.json).
+      Db__Host: mongo
+      Db__AuthSource: admin
+      Server__Port: "8080"
+      Status__Message: "Welcome to my Keepmark service!"
+      Log__Stdout__Level: ${LOG_LEVEL:-info}
+      XBROWSERSYNC_DB_USER: ${XBROWSERSYNC_DB_USER}
+      XBROWSERSYNC_DB_PWD: ${XBROWSERSYNC_DB_PWD}
+    volumes:
+      # Hot-reloadable local overrides (log level, messages...). Edit on the host,
+      # changes apply within seconds, no restart. See README "Verbosity".
+      # Only put Log/Status sections here — full keys live in appsettings.json.
+      - ./appsettings.Local.json:/app/appsettings.Local.json:ro
+    ports:
+      - "${API_PORT:-8080}:8080"
+
+volumes:
+  mongo-data:

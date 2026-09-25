@@ -1,6 +1,8 @@
 using System.Text.Json;
 using KeepmarkApi.Config;
 using KeepmarkApi.Errors;
+using KeepmarkApi.Logic;
+using KeepmarkApi.Requests;
 using KeepmarkApi.Routing;
 using KeepmarkApi.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -20,74 +22,59 @@ internal static class VersionHeader
 /// Version dispatch: '~1.0.0' → v1 handlers, '^1.1.3' → v2 handlers.</summary>
 [ApiController]
 [Route("bookmarks")]
-public sealed class BookmarksController(BookmarksService service) : ControllerBase
+public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksController> log) : ControllerBase
 {
+    private string? Ip => HttpContext.Connection.RemoteIpAddress?.ToString();
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] JsonElement body, CancellationToken ct)
     {
-        var version = VersionHeader.Resolve(Request);
-        if (ApiVersioning.BookmarksRouteVersion(version) == 1)
+        var now = DateTime.UtcNow;
+        if (ApiVersioning.BookmarksRouteVersion(VersionHeader.Resolve(Request)) == 1)
         {
-            if (!body.TryGetProperty("bookmarks", out var b) || string.IsNullOrEmpty(b.GetString()))
-            {
-                throw new RequiredDataNotFoundException();
-            }
-
-            return Ok(await service.CreateBookmarksV1Async(b.GetString()!, HttpContext, ct).ConfigureAwait(false));
+            var res = await logic.CreateV1Async(BookmarkRequests.ParseCreateV1(body), Ip, now, ct).ConfigureAwait(false);
+            log.LogInformation("New bookmarks sync created");
+            return Ok(res);
         }
 
-        if (!body.TryGetProperty("version", out var v) || string.IsNullOrEmpty(v.GetString()))
-        {
-            throw new RequiredDataNotFoundException();
-        }
-
-        return Ok(await service.CreateBookmarksV2Async(v.GetString()!, HttpContext, ct).ConfigureAwait(false));
+        var res2 = await logic.CreateV2Async(BookmarkRequests.ParseCreateV2(body), Ip, now, ct).ConfigureAwait(false);
+        log.LogInformation("New bookmarks sync created");
+        return Ok(res2);
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> Get(string id, CancellationToken ct)
-        => Ok(await service.GetBookmarksAsync(id, HttpContext, ct).ConfigureAwait(false));
+        => Ok(await logic.GetAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false));
 
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] JsonElement body, CancellationToken ct)
     {
-        var version = VersionHeader.Resolve(Request);
-        if (!body.TryGetProperty("bookmarks", out var b) || string.IsNullOrEmpty(b.GetString()))
+        var (bookmarks, lastUpdated, version) = BookmarkRequests.ParseUpdate(body);
+        if (ApiVersioning.BookmarksRouteVersion(VersionHeader.Resolve(Request)) == 1)
         {
-            throw new RequiredDataNotFoundException();
+            return Ok(await logic.UpdateV1Async(id, bookmarks, DateTime.UtcNow, ct).ConfigureAwait(false));
         }
 
-        if (ApiVersioning.BookmarksRouteVersion(version) == 1)
-        {
-            return Ok(await service.UpdateBookmarksV1Async(id, b.GetString()!, HttpContext, ct).ConfigureAwait(false));
-        }
-
-        body.TryGetProperty("lastUpdated", out var lu);
-        body.TryGetProperty("version", out var v);
-        return Ok(await service.UpdateBookmarksV2Async(
-            id, b.GetString()!, lu.GetString(), v.GetString(), HttpContext, ct).ConfigureAwait(false));
+        return Ok(await logic.UpdateV2Async(id, bookmarks, lastUpdated, version, DateTime.UtcNow, ct).ConfigureAwait(false));
     }
 
     [HttpGet("{id}/lastUpdated")]
     public async Task<IActionResult> GetLastUpdated(string id, CancellationToken ct)
     {
-        EnsureVersionSupported("^1.0.0");
-        return Ok(await service.GetLastUpdatedAsync(id, HttpContext, ct).ConfigureAwait(false));
+        EnsureVersionSupported("1.0.0");
+        return Ok(await logic.GetLastUpdatedAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false));
     }
 
     [HttpGet("{id}/version")]
     public async Task<IActionResult> GetVersion(string id, CancellationToken ct)
     {
-        EnsureVersionSupported("^1.1.3");
-        return Ok(await service.GetVersionAsync(id, HttpContext, ct).ConfigureAwait(false));
+        EnsureVersionSupported("1.1.3");
+        return Ok(await logic.GetVersionAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false));
     }
 
-    // Minimal gate: version routes exist since ^1.0.0 / ^1.1.3; anything older → 412.
     private void EnsureVersionSupported(string minimum)
     {
-        var version = VersionHeader.Resolve(Request);
-        var min = minimum.TrimStart('^');
-        if (ApiVersioning.Compare(version, min) < 0)
+        if (ApiVersioning.Compare(VersionHeader.Resolve(Request), minimum) < 0)
         {
             throw new UnsupportedVersionException();
         }
@@ -97,11 +84,11 @@ public sealed class BookmarksController(BookmarksService service) : ControllerBa
 /// <summary>Mirrors api/src/routers/info.router.ts: GET /info.</summary>
 [ApiController]
 [Route("info")]
-public sealed class InfoController(InfoService service) : ControllerBase
+public sealed class InfoController(InfoLogic logic) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
-        => Ok(await service.GetInfoAsync(HttpContext, ct).ConfigureAwait(false));
+        => Ok(await logic.GetInfoAsync(ct).ConfigureAwait(false));
 }
 
 /// <summary>Placeholder for the docs homepage (Node serves a webpack site at /).
@@ -111,5 +98,5 @@ public sealed class InfoController(InfoService service) : ControllerBase
 public sealed class RootController : ControllerBase
 {
     [HttpGet]
-    public IActionResult Get() => Ok(new { version = Config.XbsVersions.ApiVersion, info = "info" });
+    public IActionResult Get() => Ok(new { version = XbsVersions.ApiVersion, info = "info" });
 }

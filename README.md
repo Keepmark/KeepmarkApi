@@ -51,11 +51,56 @@ dotnet publish src/KeepmarkApi -r linux-x64 --self-contained
 Needs MongoDB with the `xbrowsersyncdb` user + indexes per `../api/README.md`
 (indexes are also auto-created at startup). E2E against Mongo is still to be done.
 
+## Logging & verbosity
+
+Levels mirror bunyan (`trace|debug|info|warn|error|fatal`), configured at
+`Log.Stdout.Level` (`Log.File.Level` is parsed but no file sink is wired yet).
+
+- `info` (default): request summary lines (`METHOD path status ms`), creations,
+  refusals, conflicts, 5xx errors.
+- `debug`/`trace` (verbose): every decision with values (version routing,
+  quota counts, limit checks, base vs current timestamps on conflict), per-request
+  details (IP, `Accept-Version`, byte sizes, timing), per-Mongo-op timings,
+  effective-settings dump at startup.
+- Never logged: bookmark bodies, passwords/keys, full sync IDs (truncated
+  `ab12…ef` — IDs are bearer tokens). The DB password is excluded from the dump.
+
+Change it statically (`appsettings.json`, `appsettings.Local.json`, or env
+`Log__Stdout__Level=debug`) or **on the fly without restart**: the verbosity
+gate re-reads settings on reload, so editing the watched
+`appsettings.Local.json` applies within seconds (the change itself is logged).
+
+## Docker
+
+```sh
+cp .env.example .env   # set real passwords
+touch appsettings.Local.json  # only if missing ({} is committed as placeholder)
+docker compose up --build -d
+curl localhost:8080/info
+```
+
+Verbosity in Docker, two ways:
+
+1. Static: `LOG_LEVEL=debug` in `.env`, then `docker compose up -d` (recreate).
+2. On the fly: edit the mounted `appsettings.Local.json` on the host, e.g.
+   `{"Log":{"Stdout":{"Level":"trace"}}}`, wait a few seconds, watch
+   `docker compose logs -f api`. Revert the file to go back. Only `Log`
+   (and display-only `Status`) sections belong there; DB/auth come from env.
+
+Mongo data persists in the `mongo-data` volume; the app user
+(`xbrowsersyncdb`) is created once at first init by
+`mongo-init/01-create-user.sh`. The API also creates the TTL (`expiresAt`) +
+`ipAddress` indexes at startup.
+
 ## Tests
 
 ```sh
-dotnet test
+dotnet test   # 93 xUnit tests, no Mongo/Docker needed
 ```
+
+`KeepmarkApi.Core` is runtime-free (logic, stores contracts, versioning, levels,
+redaction) so the whole rule matrix runs anywhere against in-memory fakes;
+only the thin Mongo adapters and middleware need a live server (e2e pending).
 
 ## Known limitations (parity gaps, deliberate)
 

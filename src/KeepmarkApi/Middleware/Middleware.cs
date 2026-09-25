@@ -20,41 +20,54 @@ public sealed class ErrorHandlerMiddleware(RequestDelegate next, ILogger<ErrorHa
             await next(ctx).ConfigureAwait(false);
             if (ctx.Response.StatusCode == 404 && !ctx.Response.HasStarted)
             {
-                await WriteAsync(ctx, new RouteNotImplementedException()).ConfigureAwait(false);
+                var (status, code, message) = ErrorMap.Map(new RouteNotImplementedException());
+                await WriteAsync(ctx, status, code, message).ConfigureAwait(false);
             }
         }
         catch (XbsException ex)
         {
+            // Client errors (4xx) at Debug, server errors (5xx) at Error.
+            if (ex.StatusCode >= 500)
+            {
+                log.LogError("Request failed {Code} on {Path}", ex.Code, LogSanitizer.Path(ctx.Request.Path.ToString()));
+            }
+            else
+            {
+                log.LogDebug("Request refused {Code} on {Path}", ex.Code, LogSanitizer.Path(ctx.Request.Path.ToString()));
+            }
+
             if (!ctx.Response.HasStarted)
             {
-                await WriteAsync(ctx, ex).ConfigureAwait(false);
+                var (status, code, message) = ErrorMap.Map(ex);
+                await WriteAsync(ctx, status, code, message).ConfigureAwait(false);
             }
         }
-        catch (BadHttpRequestException ex) when (ex.StatusCode == 413)
+        catch (Exception ex) when (ex is not XbsException)
         {
-            if (!ctx.Response.HasStarted)
+            Exception mapped = ex is BadHttpRequestException bad && bad.StatusCode == 413
+                ? new SyncDataLimitExceededException()
+                : ex;
+            if (mapped is not XbsException)
             {
-                await WriteAsync(ctx, new SyncDataLimitExceededException()).ConfigureAwait(false);
+                log.LogError(ex, "Unhandled error on {Path}", LogSanitizer.Path(ctx.Request.Path.ToString()));
             }
-        }
-        catch (Exception ex)
-        {
-            log.LogError(ex, "Unhandled error on {Path}", LogSanitizer.Path(ctx.Request.Path.ToString()));
+
             if (!ctx.Response.HasStarted)
             {
-                await WriteAsync(ctx, new UnspecifiedException()).ConfigureAwait(false);
+                var (status, code, message) = ErrorMap.Map(mapped);
+                await WriteAsync(ctx, status, code, message).ConfigureAwait(false);
             }
         }
     }
 
-    private static Task WriteAsync(HttpContext ctx, XbsException ex)
+    private static Task WriteAsync(HttpContext ctx, int status, string code, string message)
     {
-        ctx.Response.StatusCode = ex.StatusCode;
+        ctx.Response.StatusCode = status;
         ctx.Response.ContentType = "application/json";
         return ctx.Response.WriteAsync(JsonSerializer.Serialize(new ErrorBody
         {
-            Code = ex.Code,
-            Message = ex.Message,
+            Code = code,
+            Message = message,
         }, Json));
     }
 }
