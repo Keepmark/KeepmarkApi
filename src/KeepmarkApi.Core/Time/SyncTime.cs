@@ -29,12 +29,24 @@ public static class SyncTime
             return true;
         }
 
+        return TryParseInstant(incoming, out var baseMs) && baseMs == TruncateToMs(existing);
+    }
+
+    public static bool TryParseInstant(string? incoming, out DateTime ms)
+    {
+        ms = default;
+        if (string.IsNullOrEmpty(incoming))
+        {
+            return false;
+        }
+
         if (!DateTime.TryParse(incoming, null,
                 System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
         {
             return false;
         }
 
-        return TruncateToMs(parsed) == TruncateToMs(existing);
+        ms = TruncateToMs(parsed);
+        return true;
     }
 }

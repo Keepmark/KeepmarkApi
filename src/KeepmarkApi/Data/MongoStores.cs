@@ -104,6 +104,43 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
                 return doc is null ? null : ToRecord(doc);
             });
 
+    public async Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapAsync(
+        byte[] id, string bookmarks, string? version, DateTime baseTime, DateTime now, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var update = Builders<BookmarkDocument>.Update
+                .Set(x => x.Bookmarks, bookmarks)
+                .Set(x => x.LastAccessed, now)
+                .Set(x => x.LastUpdated, now);
+            if (!string.IsNullOrEmpty(version))
+            {
+                update = update.Set(x => x.Version, version);
+            }
+
+            // Single atomic operation: matched only while lastUpdated == base.
+            var won = await mongo.Bookmarks.FindOneAndUpdateAsync(
+                Builders<BookmarkDocument>.Filter.And(ById(id), Builders<BookmarkDocument>.Filter.Eq(x => x.LastUpdated, baseTime)),
+                update,
+                new FindOneAndUpdateOptions<BookmarkDocument> { ReturnDocument = ReturnDocument.After },
+                ct).ConfigureAwait(false);
+            if (won is not null)
+            {
+                return (ToRecord(won), ToRecord(won));
+            }
+
+            // Lost or missing: one read to tell conflict apart from not-found.
+            var current = await mongo.Bookmarks.Find(ById(id)).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+            return (null, current is null ? null : ToRecord(current));
+        }
+        finally
+        {
+            sw.Stop();
+            _log.LogDebug("mongo bookmarks.cas {Ms}ms", sw.ElapsedMilliseconds);
+        }
+    }
+
     public async Task<long> CountAsync(CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();

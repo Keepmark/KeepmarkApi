@@ -67,6 +67,30 @@ public sealed class FakeBookmarkStore : IBookmarkStore
         return Task.FromResult<StoredBookmark?>(updated);
     }
 
+    public Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapAsync(
+        byte[] id, string bookmarks, string? version, DateTime baseTime, DateTime now, CancellationToken ct)
+    {
+        if (!Docs.TryGetValue(Key(id), out var d))
+        {
+            return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, null));
+        }
+
+        if (d.LastUpdated != baseTime)
+        {
+            return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, d));
+        }
+
+        var updated = d with
+        {
+            Bookmarks = bookmarks,
+            LastAccessed = now,
+            LastUpdated = now,
+            Version = string.IsNullOrEmpty(version) ? d.Version : version,
+        };
+        Docs[Key(id)] = updated;
+        return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((updated, d));
+    }
+
     public Task<long> CountAsync(CancellationToken ct)
     {
         CountCalls++;

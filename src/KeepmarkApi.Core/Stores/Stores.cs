@@ -12,6 +12,11 @@ public interface IBookmarkStore
     /// <summary>v1 update (no existence check — mirrors the Node quirk).</summary>
     Task<StoredBookmark?> UpdateDataAsync(byte[] id, string bookmarks, DateTime now, CancellationToken ct);
     Task<StoredBookmark?> UpdateDataV2Async(byte[] id, string bookmarks, string? version, DateTime now, CancellationToken ct);
+    /// <summary>Atomic compare-and-swap: updates only when lastUpdated still
+    /// equals the base. Returns (updated, current): updated set on win;
+    /// both null when the sync does not exist; current set on conflict.</summary>
+    Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapAsync(
+        byte[] id, string bookmarks, string? version, DateTime baseTime, DateTime now, CancellationToken ct);
     Task<long> CountAsync(CancellationToken ct);
 }
 

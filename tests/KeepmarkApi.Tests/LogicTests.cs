@@ -271,6 +271,31 @@ public sealed class LogicTests
             logic.UpdateV2Async(SyncId.ToString(SyncId.New()), "x", null, null, Now));
     }
 
+    [Fact]
+    public async Task UpdateV2_SecondWriterWithSameBaseLoses()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store);
+        var res = await logic.UpdateV2Async(id, "first", KeepmarkApi.Time.SyncTime.ToIsoString(Earlier), null, Now);
+        Assert.Equal(Now, res.LastUpdated);
+        // Same stale base again → conflict, first write intact.
+        await Assert.ThrowsAsync<SyncConflictException>(() =>
+            logic.UpdateV2Async(id, "second", KeepmarkApi.Time.SyncTime.ToIsoString(Earlier), null, Now.AddSeconds(1)));
+        Assert.Equal("first", (await store.FindByIdAsync(SyncId.Parse(id), default))!.Bookmarks);
+    }
+
+    [Fact]
+    public async Task UpdateV2_UnparseableBaseThrowsConflict()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store);
+        await Assert.ThrowsAsync<SyncConflictException>(() =>
+            logic.UpdateV2Async(id, "x", "not-a-date", null, Now));
+        Assert.Equal("blob", (await store.FindByIdAsync(SyncId.Parse(id), default))!.Bookmarks);
+    }
+
     // ---- info ----
 
     [Fact]

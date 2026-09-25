@@ -164,24 +164,46 @@ public sealed class BookmarksLogic(
         now = SyncTime.TruncateToMs(now);
         CheckServiceAvailable();
         var idBytes = SyncId.Parse(id);
-        var existing = await store.FindByIdAsync(idBytes, ct).ConfigureAwait(false);
-        if (existing is null)
+
+        // No base supplied → legacy path (check existence, then update).
+        if (string.IsNullOrEmpty(lastUpdated))
+        {
+            var found = await store.FindByIdAsync(idBytes, ct).ConfigureAwait(false);
+            if (found is null)
+            {
+                _log.LogDebug("UpdateV2: not found id={Id}", LogSanitizer.SyncId(id));
+                throw new SyncNotFoundException();
+            }
+
+            _log.LogDebug("UpdateV2: no base, updating id={Id}", LogSanitizer.SyncId(id));
+            var doc = await store.UpdateDataV2Async(idBytes, bookmarks, version, now, ct).ConfigureAwait(false);
+            return new UpdateBookmarksResponse { LastUpdated = doc!.LastUpdated };
+        }
+
+        if (!SyncTime.TryParseInstant(lastUpdated, out var baseTime))
+        {
+            _log.LogInformation("UpdateV2: unparseable base id={Id} base={Base}", LogSanitizer.SyncId(id), lastUpdated);
+            throw new SyncConflictException();
+        }
+
+        // Atomic compare-and-swap: only one concurrent writer with the same
+        // base can win; the loser gets 409 instead of silently overwriting.
+        var (updated, current) = await store.CompareAndSwapAsync(idBytes, bookmarks, version, baseTime, now, ct).ConfigureAwait(false);
+        if (updated is not null)
+        {
+            _log.LogDebug("UpdateV2: CAS won id={Id}", LogSanitizer.SyncId(id));
+            return new UpdateBookmarksResponse { LastUpdated = updated.LastUpdated };
+        }
+
+        if (current is null)
         {
             _log.LogDebug("UpdateV2: not found id={Id}", LogSanitizer.SyncId(id));
             throw new SyncNotFoundException();
         }
 
-        var current = SyncTime.ToIsoString(existing.LastUpdated);
-        if (!SyncTime.SameInstant(lastUpdated, existing.LastUpdated))
-        {
-            _log.LogInformation("UpdateV2: conflict id={Id} base={Base} current={Current}",
-                LogSanitizer.SyncId(id), lastUpdated, current);
-            throw new SyncConflictException();
-        }
-
-        _log.LogDebug("UpdateV2: base check passed id={Id} version={Version}", LogSanitizer.SyncId(id), version);
-        var doc = await store.UpdateDataV2Async(idBytes, bookmarks, version, now, ct).ConfigureAwait(false);
-        return new UpdateBookmarksResponse { LastUpdated = doc!.LastUpdated };
+        _log.LogInformation("UpdateV2: conflict id={Id} base={Base} current={Current}",
+            LogSanitizer.SyncId(id), lastUpdated, SyncTime.ToIsoString(current.LastUpdated));
+        throw new SyncConflictException();
     }
 }
 
