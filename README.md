@@ -8,7 +8,7 @@ work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
 ## Status
 
 - Contract: v1.1.x frozen (Node parity) + v1.2 extended (opt-in, see below).
-- Tests: 144 xUnit (no infra) + `scripts/e2e-v1.sh` (24 checks) +
+- Tests: 144 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
   `scripts/e2e-v12.sh` (19 checks) against live Mongo, all green.
 - Verified compat matrix: new⇄old clients/servers, concurrent-push chaos —
   see [Testing](#testing).
@@ -200,7 +200,7 @@ seconds. Tune `throttle.*`; `0` disables (restart to apply).
 
 ```sh
 dotnet test                                # 144 xUnit, no infra
-BASE=http://localhost:8090 ./scripts/e2e-v1.sh`    # 26 contract checks, live checks, live
+BASE=http://localhost:8090 ./scripts/e2e-v1.sh    # 26 contract checks, live
 BASE=http://localhost:8090 ./scripts/e2e-v12.sh   # 19 v1.2 checks, live
 ```
 
