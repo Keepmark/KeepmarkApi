@@ -100,7 +100,7 @@ tracked `{}` placeholder — credentials belong in `.env` (chmod 600).
 | `Db.*` | `127.0.0.1:27017/xbrowsersync`, `authSource=admin` | `UseSrv` for `mongodb+srv://` |
 | `Location` | `""` | ISO country code, uppercased in `/info` |
 | `Log.Stdout.Level` / `Log.File.*` | `info` / file on | `trace/debug/info/warn/error/fatal` |
-| `MaxSyncs` / `MaxSyncSize` | `5242` / `512000` | `0` = unlimited syncs / 512 kB body cap |
+| `MaxSyncs` / `MaxSyncSize` | `5242` / `1048576` | `0` = unlimited syncs / 1 MB body cap (official-service parity) |
 | `Server.Host/Port/RelativePath` | `127.0.0.1:8080/` | Kestrel binds `AnyIP:Port` |
 | `Server.BehindProxy` | `false` | trust `X-Forwarded-For` **only** behind a proxy |
 | `Server.Https.*` | disabled | direct HTTPS + HSTS; else terminate at a proxy |

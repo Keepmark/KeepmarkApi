@@ -11,13 +11,14 @@ public sealed class XbsSettings
     public string Location { get; set; } = string.Empty;
     public LogSettings Log { get; set; } = new();
     public long MaxSyncs { get; set; } = 5242;
-    public long MaxSyncSize { get; set; } = 512000;
+    public long MaxSyncSize { get; set; } = 1048576;
     public ServerSettings Server { get; set; } = new();
     public StatusSettings Status { get; set; } = new();
     public ThrottleSettings Throttle { get; set; } = new();
 
-    /// <summary>Effective body limit: Node uses `maxSyncSize || 512000` (0 falls back to default).</summary>
-    public long EffectiveMaxSyncSize => MaxSyncSize > 0 ? MaxSyncSize : 512000;
+    /// <summary>Effective body limit. Node falls back to 512000 on 0; we default
+    /// to 1 MB (official-service parity), keeping the 0-means-default behavior.</summary>
+    public long EffectiveMaxSyncSize => MaxSyncSize > 0 ? MaxSyncSize : 1048576;
 
     public sealed class DbSettings
     {

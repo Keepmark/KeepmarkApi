@@ -184,8 +184,8 @@ public sealed class MappingTests
         var s = new XbsSettings();
         Assert.Equal(3, s.DailyNewSyncsLimit);
         Assert.Equal(5242, s.MaxSyncs);
-        Assert.Equal(512000, s.MaxSyncSize);
-        Assert.Equal(512000, s.EffectiveMaxSyncSize);
+        Assert.Equal(1048576, s.MaxSyncSize);
+        Assert.Equal(1048576, s.EffectiveMaxSyncSize);
         Assert.Empty(s.AllowedOrigins);
         Assert.True(s.Status.Online);
         Assert.True(s.Status.AllowNewSyncs);
@@ -197,7 +197,7 @@ public sealed class MappingTests
     [Fact]
     public void Settings_ZeroSizeFallsBack()
     {
-        Assert.Equal(512000, new XbsSettings { MaxSyncSize = 0 }.EffectiveMaxSyncSize);
+        Assert.Equal(1048576, new XbsSettings { MaxSyncSize = 0 }.EffectiveMaxSyncSize);
     }
 
     // ---- v1.2 contract ----
