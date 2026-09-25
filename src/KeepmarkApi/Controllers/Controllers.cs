@@ -139,7 +139,12 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
           <h1>Keepmark API</h1>
           <div class="version">v{version} — drop-in service for Keepmark clients</div>
           <div><span class="status" id="status">checking…</span></div>
-          <p>Service contract: <code>GET /info</code> · <code>/bookmarks</code> (JSON <code>{code,message}</code> on errors)</p>
+          <p>Service contract (JSON <code>{code,message}</code> on errors):</p>
+          <p><code>GET <a href="info">info</a></code> ·
+             <code>POST bookmarks</code> ·
+             <code>GET|PUT bookmarks/:id</code> ·
+             <code>GET bookmarks/:id/lastUpdated</code> ·
+             <code>GET bookmarks/:id/version</code></p>
           <footer>
             Keepmark API (.NET 10) — independent, interoperable reimplementation of the
             <a href="https://github.com/xbrowsersync/api">xBrowserSync API</a> v{version}
