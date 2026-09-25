@@ -3,10 +3,11 @@ using System.Text.Json.Serialization;
 namespace KeepmarkApi.Config;
 
 /// <summary>API version sent by clients in the Accept-Version header and reported in /info.
-/// Mirrors api/package.json (v1.1.13). Clients send MinApiVersion..ApiVersion.</summary>
+/// v1.2.0 adds the extended contract (revision/hash metadata, conditional GET,
+/// DELETE); v1.1.x shapes are frozen. Clients send MinApiVersion..ApiVersion.</summary>
 public static class XbsVersions
 {
-    public const string ApiVersion = "1.1.13";
+    public const string ApiVersion = "1.2.0";
     public const string MinApiVersion = "1.1.9";
 }
 

@@ -37,6 +37,18 @@ public sealed class FakeBookmarkStore : IBookmarkStore
         return Task.FromResult<StoredBookmark?>(updated);
     }
 
+    private static StoredBookmark WithWrite(StoredBookmark d, string bookmarks, string? version, DateTime now)
+        => d with
+        {
+            Bookmarks = bookmarks,
+            LastAccessed = now,
+            LastUpdated = now,
+            Version = string.IsNullOrEmpty(version) ? d.Version : version,
+            Revision = d.Revision + 1,
+            Hash = KeepmarkApi.Content.BlobMeta.HashOf(bookmarks),
+            Size = KeepmarkApi.Content.BlobMeta.SizeOf(bookmarks),
+        };
+
     public Task<StoredBookmark?> UpdateDataAsync(byte[] id, string bookmarks, DateTime now, CancellationToken ct)
     {
         if (!Docs.TryGetValue(Key(id), out var d))
@@ -44,7 +56,7 @@ public sealed class FakeBookmarkStore : IBookmarkStore
             return Task.FromResult<StoredBookmark?>(null);
         }
 
-        var updated = d with { Bookmarks = bookmarks, LastAccessed = now, LastUpdated = now };
+        var updated = WithWrite(d, bookmarks, d.Version, now);
         Docs[Key(id)] = updated;
         return Task.FromResult<StoredBookmark?>(updated);
     }
@@ -56,13 +68,7 @@ public sealed class FakeBookmarkStore : IBookmarkStore
             return Task.FromResult<StoredBookmark?>(null);
         }
 
-        var updated = d with
-        {
-            Bookmarks = bookmarks,
-            LastAccessed = now,
-            LastUpdated = now,
-            Version = string.IsNullOrEmpty(version) ? d.Version : version,
-        };
+        var updated = WithWrite(d, bookmarks, version, now);
         Docs[Key(id)] = updated;
         return Task.FromResult<StoredBookmark?>(updated);
     }
@@ -80,16 +86,31 @@ public sealed class FakeBookmarkStore : IBookmarkStore
             return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, d));
         }
 
-        var updated = d with
-        {
-            Bookmarks = bookmarks,
-            LastAccessed = now,
-            LastUpdated = now,
-            Version = string.IsNullOrEmpty(version) ? d.Version : version,
-        };
+        var updated = WithWrite(d, bookmarks, version, now);
         Docs[Key(id)] = updated;
         return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((updated, d));
     }
+
+    public Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapByRevisionAsync(
+        byte[] id, string bookmarks, string? version, long baseRevision, DateTime now, CancellationToken ct)
+    {
+        if (!Docs.TryGetValue(Key(id), out var d))
+        {
+            return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, null));
+        }
+
+        if (d.Revision != baseRevision)
+        {
+            return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, d));
+        }
+
+        var updated = WithWrite(d, bookmarks, version, now);
+        Docs[Key(id)] = updated;
+        return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((updated, d));
+    }
+
+    public Task<bool> DeleteAsync(byte[] id, CancellationToken ct)
+        => Task.FromResult(Docs.Remove(Key(id)));
 
     public Task<long> CountAsync(CancellationToken ct)
     {

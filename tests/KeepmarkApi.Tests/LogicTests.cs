@@ -307,7 +307,7 @@ public sealed class LogicTests
         Assert.Equal("GB", info.Location);
         Assert.Equal("hi <b>x</b>", info.Message);
         Assert.Equal(123, info.MaxSyncSize);
-        Assert.Equal("1.1.13", info.Version);
+        Assert.Equal(KeepmarkApi.Config.XbsVersions.ApiVersion, info.Version);
     }
 
     [Fact]
@@ -346,5 +346,83 @@ public sealed class LogicTests
         var info = await new InfoLogic(new BookmarksLogic(new FakeBookmarkStore(), new FakeSyncLogStore(), s), s).GetInfoAsync();
         Assert.Null(info.Location);
         Assert.Equal(string.Empty, info.Message);
+    }
+
+    // ---- v1.2 metadata ----
+
+    [Fact]
+    public async Task V12_CreateSetsRevisionOneAndHash()
+    {
+        var (logic, store, _) = Make(Settings());
+        var res = await logic.CreateV1Async("hello", null, Now);
+        Assert.Equal(1, res.Meta!.Revision);
+        Assert.Equal(5, res.Meta.Size);
+        Assert.Equal(KeepmarkApi.Content.BlobMeta.HashOf("hello"), res.Meta.Hash);
+        Assert.Equal(Now, res.Meta.CreatedAt);
+        var saved = await store.FindByIdAsync(SyncId.Parse(res.Id!), default);
+        Assert.Equal(1, saved!.Revision);
+    }
+
+    [Fact]
+    public async Task V12_UpdateBumpsRevisionAndRefreshesHash()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store);
+        var before = (await store.FindByIdAsync(SyncId.Parse(id), default))!.Revision;
+        var res = await logic.UpdateV2Async(id, "newdata", KeepmarkApi.Time.SyncTime.ToIsoString(Earlier), null, Now);
+        Assert.Equal(before + 1, res.Meta!.Revision);
+        Assert.Equal(KeepmarkApi.Content.BlobMeta.HashOf("newdata"), res.Meta.Hash);
+        Assert.Equal(7, res.Meta.Size);
+    }
+
+    [Fact]
+    public async Task V12_BaseRevisionWinsAndLoses()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store);
+        var rev0 = (await store.FindByIdAsync(SyncId.Parse(id), default))!.Revision;
+        var res = await logic.UpdateV2Async(id, "a", null, null, Now, baseRevision: rev0);
+        Assert.Equal(rev0 + 1, res.Meta!.Revision);
+        await Assert.ThrowsAsync<SyncConflictException>(() =>
+            logic.UpdateV2Async(id, "b", null, null, Now.AddSeconds(1), baseRevision: rev0));
+        Assert.Equal("a", (await store.FindByIdAsync(SyncId.Parse(id), default))!.Bookmarks);
+    }
+
+    [Fact]
+    public async Task V12_BaseRevisionBeatsTimestampWhenBothSent()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store);
+        var rev0 = (await store.FindByIdAsync(SyncId.Parse(id), default))!.Revision;
+        // Stale timestamp but correct revision → revision governs, update wins.
+        var res = await logic.UpdateV2Async(id, "a", "1970-01-01T00:00:00.000Z", null, Now, baseRevision: rev0);
+        Assert.Equal(Now, res.LastUpdated);
+    }
+
+    [Fact]
+    public async Task V12_DeleteRemovesSync()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store);
+        await logic.DeleteAsync(id);
+        Assert.Null(await store.FindByIdAsync(SyncId.Parse(id), default));
+        await Assert.ThrowsAsync<SyncNotFoundException>(() => logic.DeleteAsync(id));
+        await Assert.ThrowsAsync<InvalidSyncIdException>(() => logic.DeleteAsync("bad"));
+    }
+
+    [Fact]
+    public async Task V12_MetadataReflectsStore()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store);
+        var meta = await logic.GetMetadataAsync(id, Now);
+        Assert.Equal("blob", meta.Bookmarks);
+        await Assert.ThrowsAsync<SyncNotFoundException>(() =>
+            logic.GetMetadataAsync(SyncId.ToString(SyncId.New()), Now));
     }
 }

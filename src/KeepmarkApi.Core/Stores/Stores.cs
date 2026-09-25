@@ -1,7 +1,16 @@
 namespace KeepmarkApi.Stores;
 
 /// <summary>Persistence shape mirroring BookmarkDocument (web) without any driver dependency.</summary>
-public sealed record StoredBookmark(byte[] Id, string? Bookmarks, DateTime LastAccessed, DateTime LastUpdated, string? Version);
+public sealed record StoredBookmark(
+    byte[] Id,
+    string? Bookmarks,
+    DateTime LastAccessed,
+    DateTime LastUpdated,
+    string? Version,
+    long Revision = 0,
+    string? Hash = null,
+    long Size = 0,
+    DateTime? CreatedAt = null);
 
 public interface IBookmarkStore
 {
@@ -17,6 +26,10 @@ public interface IBookmarkStore
     /// both null when the sync does not exist; current set on conflict.</summary>
     Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapAsync(
         byte[] id, string bookmarks, string? version, DateTime baseTime, DateTime now, CancellationToken ct);
+    /// <summary>Same, but matching on revision instead of timestamp (v1.2 contract).</summary>
+    Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapByRevisionAsync(
+        byte[] id, string bookmarks, string? version, long baseRevision, DateTime now, CancellationToken ct);
+    Task<bool> DeleteAsync(byte[] id, CancellationToken ct);
     Task<long> CountAsync(CancellationToken ct);
 }
 

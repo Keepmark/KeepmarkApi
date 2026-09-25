@@ -197,7 +197,39 @@ public sealed class MappingTests
         Assert.Equal(512000, new XbsSettings { MaxSyncSize = 0 }.EffectiveMaxSyncSize);
     }
 
-    // ---- captured logs ----
+    // ---- v1.2 contract ----
+
+    [Theory]
+    [InlineData("1.2.0", true)]
+    [InlineData("1.2.7", true)]
+    [InlineData("1.1.13", false)]
+    [InlineData("1.0.5", false)]
+    [InlineData("2.0.0", false)]
+    public void ExtendedContract_Gated(string version, bool expected)
+    {
+        Assert.Equal(expected, KeepmarkApi.Routing.ApiVersioning.IsExtendedContract(version));
+    }
+
+    [Theory]
+    [InlineData("""{"baseRevision":3}""", 3L)]
+    [InlineData("""{"baseRevision":"7"}""", 7L)]
+    [InlineData("""{}""", null)]
+    [InlineData("""{"baseRevision":"x"}""", null)]
+    [InlineData("""{"baseRevision":1.5}""", null)]
+    public void ParseBaseRevision_Matrix(string json, long? expected)
+    {
+        Assert.Equal(expected, BookmarkRequests.ParseBaseRevision(Body(json)));
+    }
+
+    [Fact]
+    public void BlobMeta_HashAndSize()
+    {
+        Assert.Equal(64, KeepmarkApi.Content.BlobMeta.HashOf("x").Length);
+        Assert.Equal(KeepmarkApi.Content.BlobMeta.HashOf("x"), KeepmarkApi.Content.BlobMeta.HashOf("x"));
+        Assert.NotEqual(KeepmarkApi.Content.BlobMeta.HashOf("x"), KeepmarkApi.Content.BlobMeta.HashOf("y"));
+        Assert.Equal(0, KeepmarkApi.Content.BlobMeta.SizeOf(null));
+        Assert.Equal(3, KeepmarkApi.Content.BlobMeta.SizeOf("abc"));
+    }
 
     private sealed class TestLogger<T> : ILogger<T>
     {

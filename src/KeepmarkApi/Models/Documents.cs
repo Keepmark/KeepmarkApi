@@ -23,6 +23,23 @@ public sealed class BookmarkDocument
     [BsonElement("version")]
     [BsonIgnoreIfNull]
     public string? Version { get; set; }
+
+    // v1.2 metadata (optional — absent on syncs written by older servers).
+    [BsonElement("revision")]
+    [BsonDefaultValue(0L)]
+    public long Revision { get; set; }
+
+    [BsonElement("hash")]
+    [BsonIgnoreIfNull]
+    public string? Hash { get; set; }
+
+    [BsonElement("size")]
+    [BsonDefaultValue(0L)]
+    public long Size { get; set; }
+
+    [BsonElement("createdAt")]
+    [BsonIgnoreIfNull]
+    public DateTime? CreatedAt { get; set; }
 }
 
 /// <summary>Mirrors api/src/models/newSyncLogs.model.ts (collection newsynclogs).</summary>

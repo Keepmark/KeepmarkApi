@@ -48,4 +48,13 @@ public static class ApiVersioning
 
         return 0;
     }
+
+    /// <summary>v1.2 extended contract (^1.2.0): revision/hash metadata,
+    /// conditional requests, DELETE. Anything older gets the byte-identical
+    /// v1.1.x shapes.</summary>
+    public static bool IsExtendedContract(string acceptVersion)
+    {
+        var (major, minor, _) = Parse(acceptVersion);
+        return major == 1 && minor >= 2;
+    }
 }

@@ -5,6 +5,7 @@ using KeepmarkApi.Logic;
 using KeepmarkApi.Requests;
 using KeepmarkApi.Routing;
 using KeepmarkApi.Services;
+using KeepmarkApi.Time;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KeepmarkApi.Controllers;
@@ -25,6 +26,14 @@ internal static class VersionHeader
 public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksController> log) : ControllerBase
 {
     private string? Ip => HttpContext.Connection.RemoteIpAddress?.ToString();
+    private bool Extended => ApiVersioning.IsExtendedContract(VersionHeader.Resolve(Request));
+
+    private static CreateBookmarksResponse Strip(CreateBookmarksResponse2 r)
+        => new() { Id = r.Id, LastUpdated = r.LastUpdated, Version = r.Version };
+    private static GetBookmarksResponse Strip(GetBookmarksResponse2 r)
+        => new() { Bookmarks = r.Bookmarks, Version = r.Version, LastUpdated = r.LastUpdated };
+    private static UpdateBookmarksResponse Strip(UpdateBookmarksResponse2 r)
+        => new() { LastUpdated = r.LastUpdated };
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] JsonElement body, CancellationToken ct)
@@ -34,17 +43,50 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
         {
             var res = await logic.CreateV1Async(BookmarkRequests.ParseCreateV1(body), Ip, now, ct).ConfigureAwait(false);
             log.LogInformation("New bookmarks sync created");
-            return Ok(res);
+            return Ok(Extended ? res : Strip(res));
         }
 
         var res2 = await logic.CreateV2Async(BookmarkRequests.ParseCreateV2(body), Ip, now, ct).ConfigureAwait(false);
         log.LogInformation("New bookmarks sync created");
-        return Ok(res2);
+        return Ok(Extended ? res2 : Strip(res2));
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> Get(string id, CancellationToken ct)
-        => Ok(await logic.GetAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false));
+    {
+        // v1.2 conditional GET: matching content hash → 304, no body.
+        if (Extended && Request.Headers.TryGetValue("If-None-Match", out var tag))
+        {
+            var meta = await logic.GetMetadataAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false);
+            if (meta.Hash is not null && string.Equals(tag.ToString().Trim('"'), meta.Hash, StringComparison.OrdinalIgnoreCase))
+            {
+                return StatusCode(304);
+            }
+        }
+
+        var res = await logic.GetAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false);
+        return Ok(Extended ? res : Strip(res));
+    }
+
+    [HttpHead("{id}")]
+    public async Task<IActionResult> Head(string id, CancellationToken ct)
+    {
+        EnsureExtended();
+        var meta = await logic.GetMetadataAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false);
+        Response.Headers["ETag"] = $"\"{meta.Hash}\"";
+        Response.Headers["Last-Modified"] = SyncTime.ToIsoString(meta.LastUpdated);
+        Response.Headers["X-Sync-Revision"] = meta.Revision.ToString();
+        Response.Headers["X-Sync-Size"] = meta.Size.ToString();
+        return Ok();
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(string id, CancellationToken ct)
+    {
+        EnsureExtended();
+        await logic.DeleteAsync(id, ct).ConfigureAwait(false);
+        return Ok(new { });
+    }
 
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(string id, [FromBody] JsonElement body, CancellationToken ct)
@@ -55,7 +97,10 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
             return Ok(await logic.UpdateV1Async(id, bookmarks, DateTime.UtcNow, ct).ConfigureAwait(false));
         }
 
-        return Ok(await logic.UpdateV2Async(id, bookmarks, lastUpdated, version, DateTime.UtcNow, ct).ConfigureAwait(false));
+        long? baseRevision = Extended ? BookmarkRequests.ParseBaseRevision(body) : null;
+        var res = await logic.UpdateV2Async(id, bookmarks, lastUpdated, version, DateTime.UtcNow, baseRevision, ct)
+            .ConfigureAwait(false);
+        return Ok(Extended ? res : Strip(res));
     }
 
     [HttpGet("{id}/lastUpdated")]
@@ -79,16 +124,33 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
             throw new UnsupportedVersionException();
         }
     }
+
+    private void EnsureExtended()
+    {
+        if (!Extended)
+        {
+            throw new UnsupportedVersionException();
+        }
+    }
 }
 
-/// <summary>Mirrors api/src/routers/info.router.ts: GET /info.</summary>
+/// <summary>Mirrors api/src/routers/info.router.ts: GET /info.
+/// v1.2 adds the capabilities advertisement; legacy shape is untouched.</summary>
 [ApiController]
 [Route("info")]
 public sealed class InfoController(InfoLogic logic) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
-        => Ok(await logic.GetInfoAsync(ct).ConfigureAwait(false));
+    {
+        var res = await logic.GetInfoAsync(ct).ConfigureAwait(false);
+        if (ApiVersioning.IsExtendedContract(VersionHeader.Resolve(Request)))
+        {
+            res.Capabilities = new CapabilitiesResponse();
+        }
+
+        return Ok(res);
+    }
 }
 
 /// <summary>Landing page: logo, live status from /info, credits.

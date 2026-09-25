@@ -1,9 +1,10 @@
 using System.Text.Json.Serialization;
+using KeepmarkApi.Stores;
 
 namespace KeepmarkApi.Services;
 
 /// <summary>Response DTOs mirror bookmarks.service.ts ICreate/IGet/... interfaces.</summary>
-public sealed class CreateBookmarksResponse
+public class CreateBookmarksResponse
 {
     [JsonPropertyName("version")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -14,7 +15,7 @@ public sealed class CreateBookmarksResponse
     public DateTime? LastUpdated { get; set; }
 }
 
-public sealed class GetBookmarksResponse
+public class GetBookmarksResponse
 {
     [JsonPropertyName("bookmarks")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -39,7 +40,7 @@ public sealed class GetVersionResponse
     public string? Version { get; set; }
 }
 
-public sealed class UpdateBookmarksResponse
+public class UpdateBookmarksResponse
 {
     [JsonPropertyName("lastUpdated")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -59,4 +60,88 @@ public sealed class ServiceInfoResponse
     public int Status { get; set; }
     [JsonPropertyName("version")]
     public string? Version { get; set; }
+    [JsonPropertyName("capabilities")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CapabilitiesResponse? Capabilities { get; set; }
+}
+
+/// <summary>v1.2 feature advertisement. Only present on the extended contract;
+/// legacy clients keep the byte-identical shape.</summary>
+public sealed class CapabilitiesResponse
+{
+    [JsonPropertyName("revision")]
+    public bool Revision { get; set; } = true;
+    [JsonPropertyName("conditionalGet")]
+    public bool ConditionalGet { get; set; } = true;
+    [JsonPropertyName("delete")]
+    public bool Delete { get; set; } = true;
+}
+
+/// <summary>v1.2 metadata envelope. Only present on the extended contract.</summary>
+public sealed class SyncMetadata
+{
+    [JsonPropertyName("revision")]
+    public long Revision { get; set; }
+    [JsonPropertyName("hash")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Hash { get; set; }
+    [JsonPropertyName("size")]
+    public long Size { get; set; }
+    [JsonPropertyName("createdAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? CreatedAt { get; set; }
+}
+
+public static class ExtendedResponses
+{
+    public static CreateBookmarksResponse2 Create(StoredBookmark doc, string id)
+        => new()
+        {
+            Id = id,
+            LastUpdated = doc.LastUpdated,
+            Version = doc.Version,
+            Meta = MetaOf(doc),
+        };
+
+    public static GetBookmarksResponse2 Get(StoredBookmark doc)
+        => new()
+        {
+            Bookmarks = doc.Bookmarks,
+            Version = doc.Version,
+            LastUpdated = doc.LastUpdated,
+            Meta = MetaOf(doc),
+        };
+
+    public static UpdateBookmarksResponse2 Updated(StoredBookmark doc)
+        => new() { LastUpdated = doc.LastUpdated, Meta = MetaOf(doc) };
+
+    public static SyncMetadata MetaOf(StoredBookmark doc)
+        => new()
+        {
+            Revision = doc.Revision,
+            Hash = doc.Hash,
+            Size = doc.Size,
+            CreatedAt = doc.CreatedAt,
+        };
+}
+
+public sealed class CreateBookmarksResponse2 : CreateBookmarksResponse
+{
+    [JsonPropertyName("meta")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SyncMetadata? Meta { get; set; }
+}
+
+public sealed class GetBookmarksResponse2 : GetBookmarksResponse
+{
+    [JsonPropertyName("meta")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SyncMetadata? Meta { get; set; }
+}
+
+public sealed class UpdateBookmarksResponse2 : UpdateBookmarksResponse
+{
+    [JsonPropertyName("meta")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SyncMetadata? Meta { get; set; }
 }

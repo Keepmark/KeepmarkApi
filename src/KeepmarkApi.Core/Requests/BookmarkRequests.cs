@@ -16,6 +16,23 @@ public static class BookmarkRequests
     public static (string Bookmarks, string? LastUpdated, string? Version) ParseUpdate(System.Text.Json.JsonElement body)
         => (RequiredString(body, "bookmarks"), OptionalString(body, "lastUpdated"), OptionalString(body, "version"));
 
+    /// <summary>v1.2 revision base. Accepts numbers and numeric strings; absent otherwise.</summary>
+    public static long? ParseBaseRevision(System.Text.Json.JsonElement body)
+    {
+        if (body.ValueKind != System.Text.Json.JsonValueKind.Object
+            || !body.TryGetProperty("baseRevision", out var el))
+        {
+            return null;
+        }
+
+        return el.ValueKind switch
+        {
+            System.Text.Json.JsonValueKind.Number when el.TryGetInt64(out var n) => n,
+            System.Text.Json.JsonValueKind.String when long.TryParse(el.GetString(), out var s) => s,
+            _ => null,
+        };
+    }
+
     private static string RequiredString(System.Text.Json.JsonElement body, string name)
     {
         var s = OptionalString(body, name);

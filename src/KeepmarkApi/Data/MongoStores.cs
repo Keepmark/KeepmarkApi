@@ -19,7 +19,40 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
         => Builders<BookmarkDocument>.Filter.Eq(x => x.Id, new BsonBinaryData(id, BsonBinarySubType.UuidStandard));
 
     private static StoredBookmark ToRecord(BookmarkDocument d)
-        => new(d.Id.Bytes, d.Bookmarks, d.LastAccessed, d.LastUpdated, d.Version);
+        => new(d.Id.Bytes, d.Bookmarks, d.LastAccessed, d.LastUpdated, d.Version,
+            d.Revision, d.Hash, d.Size, d.CreatedAt);
+
+    private static BookmarkDocument ToDocument(StoredBookmark doc)
+        => new()
+        {
+            Id = new BsonBinaryData(doc.Id, BsonBinarySubType.UuidStandard),
+            Bookmarks = doc.Bookmarks,
+            LastAccessed = doc.LastAccessed,
+            LastUpdated = doc.LastUpdated,
+            Version = doc.Version,
+            Revision = doc.Revision,
+            Hash = doc.Hash,
+            Size = doc.Size,
+            CreatedAt = doc.CreatedAt,
+        };
+
+    /// <summary>v1.2 write payload: data + revision bump + refreshed hash/size.</summary>
+    private static UpdateDefinition<BookmarkDocument> WriteUpdate(string bookmarks, string? version, DateTime now)
+    {
+        var update = Builders<BookmarkDocument>.Update
+            .Set(x => x.Bookmarks, bookmarks)
+            .Set(x => x.LastAccessed, now)
+            .Set(x => x.LastUpdated, now)
+            .Inc(x => x.Revision, 1)
+            .Set(x => x.Hash, KeepmarkApi.Content.BlobMeta.HashOf(bookmarks))
+            .Set(x => x.Size, KeepmarkApi.Content.BlobMeta.SizeOf(bookmarks));
+        if (!string.IsNullOrEmpty(version))
+        {
+            update = update.Set(x => x.Version, version);
+        }
+
+        return update;
+    }
 
     private async Task<T> Timed<T>(string op, string? syncId, Func<Task<T>> run)
     {
@@ -38,14 +71,7 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
     public Task InsertAsync(StoredBookmark doc, CancellationToken ct)
         => Timed<object?>("insert", Uuid.SyncId.ToString(doc.Id), async () =>
         {
-            await mongo.Bookmarks.InsertOneAsync(new BookmarkDocument
-            {
-                Id = new BsonBinaryData(doc.Id, BsonBinarySubType.UuidStandard),
-                Bookmarks = doc.Bookmarks,
-                LastAccessed = doc.LastAccessed,
-                LastUpdated = doc.LastUpdated,
-                Version = doc.Version,
-            }, cancellationToken: ct).ConfigureAwait(false);
+            await mongo.Bookmarks.InsertOneAsync(ToDocument(doc), cancellationToken: ct).ConfigureAwait(false);
             return null;
         });
 
@@ -74,11 +100,7 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
             async () =>
             {
                 var doc = await mongo.Bookmarks.FindOneAndUpdateAsync(
-                    ById(id),
-                    Builders<BookmarkDocument>.Update
-                        .Set(x => x.Bookmarks, bookmarks)
-                        .Set(x => x.LastAccessed, now)
-                        .Set(x => x.LastUpdated, now),
+                    ById(id), WriteUpdate(bookmarks, null, now),
                     new FindOneAndUpdateOptions<BookmarkDocument> { ReturnDocument = ReturnDocument.After },
                     ct).ConfigureAwait(false);
                 return doc is null ? null : ToRecord(doc);
@@ -88,41 +110,23 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
         => Timed("updateV2", Uuid.SyncId.ToString(id),
             async () =>
             {
-                var update = Builders<BookmarkDocument>.Update
-                    .Set(x => x.Bookmarks, bookmarks)
-                    .Set(x => x.LastAccessed, now)
-                    .Set(x => x.LastUpdated, now);
-                if (!string.IsNullOrEmpty(version))
-                {
-                    update = update.Set(x => x.Version, version);
-                }
-
                 var doc = await mongo.Bookmarks.FindOneAndUpdateAsync(
-                    ById(id), update,
+                    ById(id), WriteUpdate(bookmarks, version, now),
                     new FindOneAndUpdateOptions<BookmarkDocument> { ReturnDocument = ReturnDocument.After },
                     ct).ConfigureAwait(false);
                 return doc is null ? null : ToRecord(doc);
             });
 
-    public async Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapAsync(
-        byte[] id, string bookmarks, string? version, DateTime baseTime, DateTime now, CancellationToken ct)
+    private async Task<(StoredBookmark? Updated, StoredBookmark? Current)> CasAsync(
+        FilterDefinition<BookmarkDocument> match, byte[] id, string bookmarks, string? version, DateTime now,
+        string op, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         try
         {
-            var update = Builders<BookmarkDocument>.Update
-                .Set(x => x.Bookmarks, bookmarks)
-                .Set(x => x.LastAccessed, now)
-                .Set(x => x.LastUpdated, now);
-            if (!string.IsNullOrEmpty(version))
-            {
-                update = update.Set(x => x.Version, version);
-            }
-
-            // Single atomic operation: matched only while lastUpdated == base.
+            // Single atomic operation: matched only while the base still holds.
             var won = await mongo.Bookmarks.FindOneAndUpdateAsync(
-                Builders<BookmarkDocument>.Filter.And(ById(id), Builders<BookmarkDocument>.Filter.Eq(x => x.LastUpdated, baseTime)),
-                update,
+                match, WriteUpdate(bookmarks, version, now),
                 new FindOneAndUpdateOptions<BookmarkDocument> { ReturnDocument = ReturnDocument.After },
                 ct).ConfigureAwait(false);
             if (won is not null)
@@ -137,7 +141,36 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
         finally
         {
             sw.Stop();
-            _log.LogDebug("mongo bookmarks.cas {Ms}ms", sw.ElapsedMilliseconds);
+            _log.LogDebug("mongo bookmarks.{Op} {Ms}ms", op, sw.ElapsedMilliseconds);
+        }
+    }
+
+    public Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapAsync(
+        byte[] id, string bookmarks, string? version, DateTime baseTime, DateTime now, CancellationToken ct)
+        => CasAsync(
+            Builders<BookmarkDocument>.Filter.And(
+                ById(id), Builders<BookmarkDocument>.Filter.Eq(x => x.LastUpdated, baseTime)),
+            id, bookmarks, version, now, "cas", ct);
+
+    public Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapByRevisionAsync(
+        byte[] id, string bookmarks, string? version, long baseRevision, DateTime now, CancellationToken ct)
+        => CasAsync(
+            Builders<BookmarkDocument>.Filter.And(
+                ById(id), Builders<BookmarkDocument>.Filter.Eq(x => x.Revision, baseRevision)),
+            id, bookmarks, version, now, "casRev", ct);
+
+    public async Task<bool> DeleteAsync(byte[] id, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var res = await mongo.Bookmarks.DeleteOneAsync(ById(id), ct).ConfigureAwait(false);
+            return res.DeletedCount > 0;
+        }
+        finally
+        {
+            sw.Stop();
+            _log.LogDebug("mongo bookmarks.delete {Ms}ms", sw.ElapsedMilliseconds);
         }
     }
 
