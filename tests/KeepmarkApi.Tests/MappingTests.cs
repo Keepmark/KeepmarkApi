@@ -160,6 +160,19 @@ public sealed class MappingTests
             SyncTime.ToIsoString(new DateTime(2026, 9, 25, 12, 0, 0, DateTimeKind.Unspecified)));
     }
 
+    [Theory]
+    [InlineData("2026-09-25T12:00:00.000Z", true)]
+    [InlineData("2026-09-25T12:00:00.00Z", true)] // short spelling, same instant
+    [InlineData("2026-09-25T12:00:00.0001000Z", true)] // sub-ms echo truncates equal
+    [InlineData("2026-09-25T12:00:00.001Z", false)]
+    [InlineData("not-a-date", false)]
+    [InlineData(null, true)] // absent base skips the check
+    public void SyncTime_SameInstant(string? incoming, bool expected)
+    {
+        var existing = new DateTime(2026, 9, 25, 12, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(expected, SyncTime.SameInstant(incoming, existing));
+    }
+
     // ---- settings ----
 
     [Fact]

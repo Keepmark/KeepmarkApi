@@ -86,6 +86,7 @@ public sealed class BookmarksLogic(
 
     public async Task<CreateBookmarksResponse> CreateV1Async(string bookmarks, string? ip, DateTime now, CancellationToken ct = default)
     {
+        now = SyncTime.TruncateToMs(now);
         await GuardNewSyncAsync(ip, ct).ConfigureAwait(false);
         var doc = new StoredBookmark(SyncId.New(), bookmarks, now, now, null);
         await store.InsertAsync(doc, ct).ConfigureAwait(false);
@@ -96,6 +97,7 @@ public sealed class BookmarksLogic(
 
     public async Task<CreateBookmarksResponse> CreateV2Async(string version, string? ip, DateTime now, CancellationToken ct = default)
     {
+        now = SyncTime.TruncateToMs(now);
         await GuardNewSyncAsync(ip, ct).ConfigureAwait(false);
         var doc = new StoredBookmark(SyncId.New(), null, now, now, version);
         await store.InsertAsync(doc, ct).ConfigureAwait(false);
@@ -140,6 +142,7 @@ public sealed class BookmarksLogic(
 
     public async Task<UpdateBookmarksResponse> UpdateV1Async(string id, string bookmarks, DateTime now, CancellationToken ct = default)
     {
+        now = SyncTime.TruncateToMs(now);
         CheckServiceAvailable();
         // Node quirk: missing sync → 200 with {} (no lastUpdated), not 401.
         var doc = await store.UpdateDataAsync(SyncId.Parse(id), bookmarks, now, ct).ConfigureAwait(false);
@@ -158,6 +161,7 @@ public sealed class BookmarksLogic(
     public async Task<UpdateBookmarksResponse> UpdateV2Async(
         string id, string bookmarks, string? lastUpdated, string? version, DateTime now, CancellationToken ct = default)
     {
+        now = SyncTime.TruncateToMs(now);
         CheckServiceAvailable();
         var idBytes = SyncId.Parse(id);
         var existing = await store.FindByIdAsync(idBytes, ct).ConfigureAwait(false);
@@ -168,8 +172,7 @@ public sealed class BookmarksLogic(
         }
 
         var current = SyncTime.ToIsoString(existing.LastUpdated);
-        if (!string.IsNullOrEmpty(lastUpdated)
-            && !string.Equals(lastUpdated, current, StringComparison.Ordinal))
+        if (!SyncTime.SameInstant(lastUpdated, existing.LastUpdated))
         {
             _log.LogInformation("UpdateV2: conflict id={Id} base={Base} current={Current}",
                 LogSanitizer.SyncId(id), lastUpdated, current);

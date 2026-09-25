@@ -7,4 +7,34 @@ public static class SyncTime
     public static string ToIsoString(DateTime dt)
         => (dt.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(dt, DateTimeKind.Utc) : dt.ToUniversalTime())
             .ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+    /// <summary>BSON dates carry millisecond precision; in-memory UTC ticks
+    /// must be truncated on write or echoes never match.</summary>
+    public static DateTime TruncateToMs(DateTime dt)
+    {
+        var utc = dt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+            : dt.ToUniversalTime();
+        return new DateTime(utc.Ticks / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond, DateTimeKind.Utc);
+    }
+
+    /// <summary>Base/current comparison for optimistic concurrency. Node compares
+    /// raw strings (always canonical 3-digit there); we compare parsed instants
+    /// at ms precision so equivalent spellings (".87" vs ".870", sub-ms echoes)
+    /// agree. Unparseable input counts as mismatch.</summary>
+    public static bool SameInstant(string? incoming, DateTime existing)
+    {
+        if (string.IsNullOrEmpty(incoming))
+        {
+            return true;
+        }
+
+        if (!DateTime.TryParse(incoming, null,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+        {
+            return false;
+        }
+
+        return TruncateToMs(parsed) == TruncateToMs(existing);
+    }
 }
