@@ -207,6 +207,10 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
              <code>GET|PUT bookmarks/:id</code> ·
              <code>GET bookmarks/:id/lastUpdated</code> ·
              <code>GET bookmarks/:id/version</code></p>
+          <p>v1.2 (send <code>Accept-Version: 1.2.0</code>): <code>meta{revision,hash,size,createdAt}</code> on
+             responses, <code>PUT</code> with <code>baseRevision</code>,
+             <code>HEAD bookmarks/:id</code> + <code>If-None-Match</code> → <code>304</code>,
+             <code>DELETE bookmarks/:id</code></p>
           <footer>
             Keepmark API (.NET 10) — independent, interoperable reimplementation of the
             <a href="https://github.com/xbrowsersync/api">xBrowserSync API</a> v{version}

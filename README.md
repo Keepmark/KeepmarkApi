@@ -51,6 +51,21 @@ dotnet publish src/KeepmarkApi -r linux-x64 --self-contained
 Needs MongoDB with the `xbrowsersyncdb` user + indexes per `../api/README.md`
 (indexes are also auto-created at startup). E2E against Mongo is still to be done.
 
+## API contracts
+
+- **v1.1.x** (`Accept-Version: 1.1.9`–`1.1.13`): frozen Node parity. Shapes are
+  byte-identical to the original; the server reports `1.2.0` in `/info.version`
+  but old clients only enforce the minimum, so nothing breaks.
+- **v1.2** (`Accept-Version: ^1.2.0`, opt-in): same endpoints plus
+  `meta {revision, hash, size, createdAt}` on create/get/update,
+  `PUT` accepting `baseRevision` (atomic CAS on revision instead of timestamp),
+  `HEAD /bookmarks/:id` (`ETag`, `Last-Modified`, `X-Sync-Revision`,
+  `X-Sync-Size`), conditional `GET` via `If-None-Match` → `304`,
+  `DELETE /bookmarks/:id`, and `capabilities` in `/info`.
+  `revision` starts at 1 and bumps on every write (any contract);
+  `hash` = SHA-256 of the ciphertext; old syncs show `revision: 0` until
+  their next write (no backfill, by design).
+
 ## Logging & verbosity
 
 Levels mirror bunyan (`trace|debug|info|warn|error|fatal`), configured at
