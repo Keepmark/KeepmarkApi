@@ -340,6 +340,19 @@ public sealed class LogicTests
     }
 
     [Fact]
+    public async Task Info_ExtendedAddsCapabilities()
+    {
+        var s = Settings();
+        var store = new FakeBookmarkStore();
+        var logic = new InfoLogic(new BookmarksLogic(store, new FakeSyncLogStore(), s), s);
+        var legacy = await logic.GetInfoAsync(ct: default, extended: false);
+        var v12 = await logic.GetInfoAsync(ct: default, extended: true);
+        Assert.Null(legacy.Capabilities);
+        Assert.NotNull(v12.Capabilities);
+        Assert.True(v12.Capabilities!.Revision && v12.Capabilities.ConditionalGet && v12.Capabilities.Delete);
+    }
+
+    [Fact]
     public async Task Info_EmptyLocationAndMessage()
     {
         var s = Settings();
@@ -424,5 +437,60 @@ public sealed class LogicTests
         Assert.Equal("blob", meta.Bookmarks);
         await Assert.ThrowsAsync<SyncNotFoundException>(() =>
             logic.GetMetadataAsync(SyncId.ToString(SyncId.New()), Now));
+    }
+
+    [Fact]
+    public async Task V12_OldDocsServeZeroRevisionWithoutHash()
+    {
+        // Syncs written by pre-1.2 servers have no metadata; served as-is until next write.
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store); // Seed uses record defaults: revision 0, no hash
+        var res = await logic.GetAsync(id, Now);
+        Assert.Equal(0, res.Meta!.Revision);
+        Assert.Null(res.Meta.Hash);
+        Assert.Equal(0, res.Meta.Size);
+        Assert.Null(res.Meta.CreatedAt);
+    }
+
+    [Fact]
+    public async Task V12_V1UpdateBumpsRevisionAndHash()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        var id = Seed(store);
+        var before = await store.FindByIdAsync(SyncId.Parse(id), default);
+        var res = await logic.UpdateV1Async(id, "v1new", Now);
+        Assert.NotNull(res.LastUpdated);
+        var after = await store.FindByIdAsync(SyncId.Parse(id), default);
+        Assert.Equal(before!.Revision + 1, after!.Revision);
+        Assert.Equal(KeepmarkApi.Content.BlobMeta.HashOf("v1new"), after.Hash);
+    }
+
+    [Fact]
+    public async Task V12_TouchKeepsRevisionAndCreatedAt()
+    {
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings());
+        // Seed a v1.2-era doc (createdAt set at creation, like CreateV1Async does).
+        var idBytes = SyncId.New();
+        var id = SyncId.ToString(idBytes);
+        store.Seed(new KeepmarkApi.Stores.StoredBookmark(idBytes, "blob", Earlier, Earlier, "1.1.13",
+            Revision: 3, Hash: "h", Size: 4, CreatedAt: Earlier));
+        await logic.UpdateV2Async(id, "x", null, null, Now); // rev 3→4, createdAt untouched
+        var t1 = Now.AddMinutes(5);
+        await logic.GetAsync(id, t1); // touch only
+        var doc = await store.FindByIdAsync(SyncId.Parse(id), default);
+        Assert.Equal(4, doc!.Revision);
+        Assert.Equal(Earlier, doc.CreatedAt);
+        Assert.Equal(t1, doc.LastAccessed);
+    }
+
+    [Fact]
+    public async Task V12_BaseRevisionOnMissingThrowsNotFound()
+    {
+        var (logic, _, _) = Make(Settings());
+        await Assert.ThrowsAsync<SyncNotFoundException>(() =>
+            logic.UpdateV2Async(SyncId.ToString(SyncId.New()), "x", null, null, Now, baseRevision: 1));
     }
 }

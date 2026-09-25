@@ -57,6 +57,7 @@ public sealed class ApiVersioningTests
     [InlineData("1.0.9", 1)]
     [InlineData("1.1.3", 2)]
     [InlineData("1.1.13", 2)]
+    [InlineData("1.2.0", 2)]
     [InlineData("1.8.0", 2)]
     public void BookmarksRouteVersion_MapsCorrectly(string header, int expected)
     {

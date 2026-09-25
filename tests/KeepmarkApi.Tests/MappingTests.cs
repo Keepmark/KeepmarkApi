@@ -231,6 +231,31 @@ public sealed class MappingTests
         Assert.Equal(3, KeepmarkApi.Content.BlobMeta.SizeOf("abc"));
     }
 
+    // ---- legacy shape freeze: stripped DTOs must not contain new keys ----
+
+    [Fact]
+    public void LegacyShapes_HaveNoMetaOrCapabilitiesKeys()
+    {
+        var meta = new KeepmarkApi.Services.SyncMetadata { Revision = 5, Hash = "abc", Size = 3 };
+        var create = KeepmarkApi.Shaping.ResponseShapes.Strip(
+            new KeepmarkApi.Services.CreateBookmarksResponse2 { Id = "i", Meta = meta });
+        var get = KeepmarkApi.Shaping.ResponseShapes.Strip(
+            new KeepmarkApi.Services.GetBookmarksResponse2 { Bookmarks = "b", Meta = meta });
+        var update = KeepmarkApi.Shaping.ResponseShapes.Strip(
+            new KeepmarkApi.Services.UpdateBookmarksResponse2 { Meta = meta });
+        foreach (var dto in new object[] { create, get, update })
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(dto);
+            Assert.DoesNotContain("meta", json);
+        }
+
+        var info = new KeepmarkApi.Services.ServiceInfoResponse
+            { Status = 1, Version = "1.2.0", Message = string.Empty };
+        Assert.DoesNotContain("capabilities", System.Text.Json.JsonSerializer.Serialize(info));
+        info.Capabilities = new KeepmarkApi.Services.CapabilitiesResponse();
+        Assert.Contains("capabilities", System.Text.Json.JsonSerializer.Serialize(info));
+    }
+
     private sealed class TestLogger<T> : ILogger<T>
     {
         public readonly List<(LogLevel Level, string Message)> Events = [];

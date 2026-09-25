@@ -293,12 +293,13 @@ public static class SyncLogStoreExtensions
     }
 }
 
-/// <summary>Service-info rules mirroring api/src/services/info.service.ts.</summary>
+/// <summary>Service-info rules mirroring api/src/services/info.service.ts.
+/// extended=true adds the v1.2 capabilities advertisement.</summary>
 public sealed class InfoLogic(BookmarksLogic bookmarks, XbsSettings settings, ILogger<InfoLogic>? logger = null)
 {
     private readonly ILogger<InfoLogic> _log = logger ?? NullLogger<InfoLogic>.Instance;
 
-    public async Task<ServiceInfoResponse> GetInfoAsync(CancellationToken ct = default)
+    public async Task<ServiceInfoResponse> GetInfoAsync(CancellationToken ct = default, bool extended = false)
     {
         var info = new ServiceInfoResponse
         {
@@ -307,6 +308,7 @@ public sealed class InfoLogic(BookmarksLogic bookmarks, XbsSettings settings, IL
             Message = HtmlSanitizer.StripScripts(settings.Status.Message),
             Status = (int)ServiceStatus.Offline,
             Version = XbsVersions.ApiVersion,
+            Capabilities = extended ? new CapabilitiesResponse() : null,
         };
 
         if (settings.Status.Online)

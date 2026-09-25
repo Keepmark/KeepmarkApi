@@ -5,6 +5,7 @@ using KeepmarkApi.Logic;
 using KeepmarkApi.Requests;
 using KeepmarkApi.Routing;
 using KeepmarkApi.Services;
+using KeepmarkApi.Shaping;
 using KeepmarkApi.Time;
 using Microsoft.AspNetCore.Mvc;
 
@@ -28,13 +29,6 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
     private string? Ip => HttpContext.Connection.RemoteIpAddress?.ToString();
     private bool Extended => ApiVersioning.IsExtendedContract(VersionHeader.Resolve(Request));
 
-    private static CreateBookmarksResponse Strip(CreateBookmarksResponse2 r)
-        => new() { Id = r.Id, LastUpdated = r.LastUpdated, Version = r.Version };
-    private static GetBookmarksResponse Strip(GetBookmarksResponse2 r)
-        => new() { Bookmarks = r.Bookmarks, Version = r.Version, LastUpdated = r.LastUpdated };
-    private static UpdateBookmarksResponse Strip(UpdateBookmarksResponse2 r)
-        => new() { LastUpdated = r.LastUpdated };
-
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] JsonElement body, CancellationToken ct)
     {
@@ -43,12 +37,12 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
         {
             var res = await logic.CreateV1Async(BookmarkRequests.ParseCreateV1(body), Ip, now, ct).ConfigureAwait(false);
             log.LogInformation("New bookmarks sync created");
-            return Ok(Extended ? res : Strip(res));
+            return Ok(Extended ? res : ResponseShapes.Strip(res));
         }
 
         var res2 = await logic.CreateV2Async(BookmarkRequests.ParseCreateV2(body), Ip, now, ct).ConfigureAwait(false);
         log.LogInformation("New bookmarks sync created");
-        return Ok(Extended ? res2 : Strip(res2));
+        return Ok(Extended ? res2 : ResponseShapes.Strip(res2));
     }
 
     [HttpGet("{id}")]
@@ -65,7 +59,7 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
         }
 
         var res = await logic.GetAsync(id, DateTime.UtcNow, ct).ConfigureAwait(false);
-        return Ok(Extended ? res : Strip(res));
+        return Ok(Extended ? res : ResponseShapes.Strip(res));
     }
 
     [HttpHead("{id}")]
@@ -100,7 +94,7 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
         long? baseRevision = Extended ? BookmarkRequests.ParseBaseRevision(body) : null;
         var res = await logic.UpdateV2Async(id, bookmarks, lastUpdated, version, DateTime.UtcNow, baseRevision, ct)
             .ConfigureAwait(false);
-        return Ok(Extended ? res : Strip(res));
+        return Ok(Extended ? res : ResponseShapes.Strip(res));
     }
 
     [HttpGet("{id}/lastUpdated")]
@@ -143,12 +137,8 @@ public sealed class InfoController(InfoLogic logic) : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
     {
-        var res = await logic.GetInfoAsync(ct).ConfigureAwait(false);
-        if (ApiVersioning.IsExtendedContract(VersionHeader.Resolve(Request)))
-        {
-            res.Capabilities = new CapabilitiesResponse();
-        }
-
+        var extended = ApiVersioning.IsExtendedContract(VersionHeader.Resolve(Request));
+        var res = await logic.GetInfoAsync(ct, extended).ConfigureAwait(false);
         return Ok(res);
     }
 }
