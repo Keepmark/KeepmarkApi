@@ -4,7 +4,7 @@ namespace KeepmarkApi.Errors;
 /// Code is the class name so old clients mapping status codes keep working.</summary>
 public abstract class XbsException(string message, int statusCode) : Exception(message)
 {
-    public string Code => GetType().Name;
+    public virtual string Code => GetType().Name;
     public int StatusCode { get; } = statusCode;
 }
 
@@ -24,7 +24,11 @@ public sealed class NewSyncsLimitExceededException(string? message = null)
     : XbsException(message ?? "Client has exceeded the daily new syncs limit", 406);
 
 public sealed class RouteNotImplementedException(string? message = null)
-    : XbsException(message ?? "The requested route has not been implemented", 404);
+    : XbsException(message ?? "The requested route has not been implemented", 404)
+{
+    // Wire name must match Node's NotImplementedException (System already owns that name).
+    public override string Code => "NotImplementedException";
+}
 
 public sealed class SyncConflictException(string? message = null)
     : XbsException(message ?? "A sync conflict was detected", 409);

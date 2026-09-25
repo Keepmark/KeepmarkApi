@@ -139,6 +139,10 @@ if (settings.Throttle.MaxRequests > 0)
 app.UseMiddleware<OriginGuardMiddleware>();
 app.UseMiddleware<ErrorHandlerMiddleware>();
 
+// Static brand assets (logo.png, favicon.png). Exact files only —
+// missing paths fall through to controllers and keep the JSON 404 contract.
+app.UseStaticFiles();
+
 // Request log with redacted sync IDs (IDs are bearer tokens — never log full).
 // Info: one summary line. Debug (verbose): IP, version header, sizes, timing.
 app.Logger.LogInformation("Service started at {Url} (log level: {Level})",

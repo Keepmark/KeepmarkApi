@@ -91,12 +91,74 @@ public sealed class InfoController(InfoLogic logic) : ControllerBase
         => Ok(await logic.GetInfoAsync(ct).ConfigureAwait(false));
 }
 
-/// <summary>Placeholder for the docs homepage (Node serves a webpack site at /).
-/// Returns service identity; full docs page is future work.</summary>
+/// <summary>Landing page: logo, live status from /info, credits.
+/// Exact path "/" only — unknown paths still return the JSON 404 contract.</summary>
 [ApiController]
 [Route("/")]
-public sealed class RootController : ControllerBase
+public sealed class RootController(IWebHostEnvironment env) : ControllerBase
 {
     [HttpGet]
-    public IActionResult Get() => Ok(new { version = XbsVersions.ApiVersion, info = "info" });
+    public ContentResult Get()
+    {
+        var html = LandingPage.Replace("{version}", XbsVersions.ApiVersion, StringComparison.Ordinal);
+        return Content(html, "text/html");
+    }
+
+    [HttpGet("favicon.ico")]
+    public IActionResult Favicon()
+    {
+        var path = Path.Combine(env.WebRootPath, "favicon.png");
+        return System.IO.File.Exists(path) ? PhysicalFile(path, "image/png") : NoContent();
+    }
+
+    private const string LandingPage = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Keepmark API</title>
+        <style>
+          body { font-family: system-ui, sans-serif; background: #14171c; color: #e8eaed;
+                 display: flex; justify-content: center; padding: 4rem 1rem; margin: 0; }
+          main { max-width: 34rem; text-align: center; }
+          img { width: 96px; height: auto; }
+          h1 { font-size: 1.6rem; margin: 1rem 0 0.25rem; }
+          .version { color: #9aa0a6; margin-bottom: 1.5rem; }
+          .status { display: inline-block; padding: 0.3rem 0.9rem; border-radius: 999px;
+                    background: #333; font-size: 0.9rem; }
+          .status.online { background: #1d4620; } .status.warn { background: #5c3d00; }
+          .status.offline { background: #5c1a1a; }
+          footer { margin-top: 2.5rem; font-size: 0.8rem; color: #9aa0a6; }
+          a { color: #8ab4f8; } code { background: #24282f; padding: 0.1rem 0.4rem; border-radius: 4px; }
+        </style>
+        </head>
+        <body>
+        <main>
+          <img src="logo.png" alt="Keepmark logo">
+          <h1>Keepmark API</h1>
+          <div class="version">v{version} — drop-in service for Keepmark clients</div>
+          <div><span class="status" id="status">checking…</span></div>
+          <p>Service contract: <code>GET /info</code> · <code>/bookmarks</code> (JSON <code>{code,message}</code> on errors)</p>
+          <footer>
+            Keepmark API (.NET 10) — independent, interoperable reimplementation of the
+            <a href="https://github.com/xbrowsersync/api">xBrowserSync API</a> v{version}
+            (GPL-3.0). Not affiliated with or endorsed by xBrowserSync.
+            Clients never send plaintext: bookmarks stay encrypted end-to-end.
+          </footer>
+        </main>
+        <script>
+          fetch('info').then(function (r) { return r.json(); }).then(function (i) {
+            var el = document.getElementById('status');
+            var map = { 1: ['Online', 'online'], 3: ['Not accepting new syncs', 'warn'] };
+            var s = map[i.status] || ['Offline', 'offline'];
+            el.textContent = s[0]; el.className = 'status ' + s[1];
+          }).catch(function () {
+            var el = document.getElementById('status');
+            el.textContent = 'Offline'; el.className = 'status offline';
+          });
+        </script>
+        </body>
+        </html>
+        """;
 }

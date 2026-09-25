@@ -58,7 +58,7 @@ public sealed class MappingTests
         { new RequiredDataNotFoundException(), 400, nameof(RequiredDataNotFoundException) },
         { new NewSyncsForbiddenException(), 405, nameof(NewSyncsForbiddenException) },
         { new NewSyncsLimitExceededException(), 406, nameof(NewSyncsLimitExceededException) },
-        { new RouteNotImplementedException(), 404, nameof(RouteNotImplementedException) },
+        { new RouteNotImplementedException(), 404, "NotImplementedException" }, // wire name matches Node
         { new SyncConflictException(), 409, nameof(SyncConflictException) },
         { new UnsupportedVersionException(), 412, nameof(UnsupportedVersionException) },
         { new SyncDataLimitExceededException(), 413, nameof(SyncDataLimitExceededException) },
@@ -92,6 +92,14 @@ public sealed class MappingTests
     {
         var (_, _, m) = ErrorMap.Map(new SyncNotFoundException("gone"));
         Assert.Equal("gone", m);
+    }
+
+    [Fact]
+    public void ErrorMap_NotImplementedWireNameMatchesNode()
+    {
+        var (s, c, _) = ErrorMap.Map(new RouteNotImplementedException());
+        Assert.Equal(404, s);
+        Assert.Equal("NotImplementedException", c); // Node exception.ts name
     }
 
     // ---- requests ----

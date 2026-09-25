@@ -18,7 +18,14 @@ public sealed class ErrorHandlerMiddleware(RequestDelegate next, ILogger<ErrorHa
         try
         {
             await next(ctx).ConfigureAwait(false);
-            if (ctx.Response.StatusCode == 404 && !ctx.Response.HasStarted)
+            // Node's catch-all returns 404 NotImplemented for any unmatched
+            // route AND method; ASP.NET routing answers 405 on matched-route /
+            // wrong-method (e.g. GET /bookmarks). Normalize both, but only when
+            // nothing was written yet (explicit responses like 405
+            // NewSyncsForbidden carry their own body via exceptions).
+            if ((ctx.Response.StatusCode == 404 || ctx.Response.StatusCode == 405)
+                && !ctx.Response.HasStarted
+                && (ctx.Response.ContentLength is null or 0))
             {
                 var (status, code, message) = ErrorMap.Map(new RouteNotImplementedException());
                 await WriteAsync(ctx, status, code, message).ConfigureAwait(false);

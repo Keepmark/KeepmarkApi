@@ -4,7 +4,7 @@
 # The API creates the TTL (expiresAt) + ipAddress indexes itself at startup.
 set -eu
 mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --quiet --eval "
-db.getSiblingDB('xbrowsersync').createUser({
+db.getSiblingDB('admin').createUser({
   user: '$XBROWSERSYNC_DB_USER',
   pwd: '$XBROWSERSYNC_DB_PWD',
   roles: [
