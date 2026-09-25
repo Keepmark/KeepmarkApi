@@ -13,6 +13,9 @@ services:
     volumes:
       - mongo-data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d:ro
+      # Dump target for scripts/mongo-backup.sh (named volume: home-dir
+      # encryption blocks container writes on bind mounts).
+      - mongo-dumps:/dump
     ports:
       - "127.0.0.1:27017:27017"
 
@@ -28,6 +31,7 @@ services:
       Server__Port: "8080"
       Status__Message: "Welcome to my Keepmark service!"
       Log__Stdout__Level: ${LOG_LEVEL:-info}
+      Log__File__Path: /app/logs/api.log
       XBROWSERSYNC_DB_USER: ${XBROWSERSYNC_DB_USER}
       XBROWSERSYNC_DB_PWD: ${XBROWSERSYNC_DB_PWD}
     volumes:
@@ -35,8 +39,14 @@ services:
       # changes apply within seconds, no restart. See README "Verbosity".
       # Only put Log/Status sections here — full keys live in appsettings.json.
       - ./appsettings.Local.json:/app/appsettings.Local.json:ro
+      # File-sink logs (log.file settings). Named volume: home-dir encryption
+      # blocks container writes on bind mounts. Read via
+      # docker compose exec api cat /app/logs/api.log
+      - api-logs:/app/logs
     ports:
       - "${API_PORT:-8080}:8080"
 
 volumes:
   mongo-data:
+  mongo-dumps:
+  api-logs:

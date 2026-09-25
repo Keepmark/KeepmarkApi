@@ -75,8 +75,11 @@ gate re-reads settings on reload, so editing the watched
 ```sh
 cp .env.example .env   # set real passwords
 touch appsettings.Local.json  # only if missing ({} is committed as placeholder)
+# One-time volume ownership (named volumes are root-owned by default):
+docker run --rm -v keepmarkapi_api-logs:/data alpine chown 1654:1654 /data
+docker run --rm -v keepmarkapi_mongo-dumps:/data alpine chown 999:999 /data
 docker compose up --build -d
-curl localhost:8080/info
+curl localhost:8090/info
 ```
 
 Verbosity in Docker, two ways:
@@ -95,7 +98,7 @@ Mongo data persists in the `mongo-data` volume; the app user
 ## Tests
 
 ```sh
-dotnet test   # 93 xUnit tests, no Mongo/Docker needed
+dotnet test   # 109 xUnit tests, no Mongo/Docker needed
 ```
 
 `KeepmarkApi.Core` is runtime-free (logic, stores contracts, versioning, levels,
@@ -104,7 +107,45 @@ only the thin Mongo adapters and middleware need a live server (e2e pending).
 
 ## Known limitations (parity gaps, deliberate)
 
-- `Log.File` settings are parsed but no file sink is wired yet (console only).
 - `AllowedOrigins` supports exact strings only (Node also accepts `RegExp`).
-- `GET /` returns `{version,info}` JSON, not the docs site.
 - `Location` validation uses `RegionInfo` instead of the `country-list` package.
+
+## Operations
+
+### File logs
+
+`log.file` settings are honored: path, level, `rotationPeriod` (`1d`, `12h`,
+`hourly`… — Node format) and `rotatedFilesToKeep` (`api.log` → `api.log.0` →
+`api.log.1`…). The gate still applies, so on-the-fly level changes affect the
+file too. In Docker the path is preset to `/app/logs/api.log` (named volume `api-logs`;
+home-dir encryption blocks container writes on bind mounts here). Read with
+`docker compose exec api cat /app/logs/api.log`. If the path is not writable
+the sink disables itself with a warning.
+
+### Mongo backup
+
+```sh
+./scripts/mongo-backup.sh   # mongodump of both DBs into the mongo-dumps volume, keeps 7
+```
+
+Cron: `0 3 * * * cd /path/to/KeepmarkApi && ./scripts/mongo-backup.sh`.
+List: `docker compose exec mongo ls /dump`.
+Fetch: `docker cp keepmarkapi-mongo-1:/dump/<stamp> ./restores/`.
+Restore: `mongorestore` the dump dir into `xbrowsersync` with the app user.
+
+### TLS
+
+Two supported layouts (the API speaks plain HTTP inside Docker by default):
+
+1. TLS proxy in front (recommended): terminate at Caddy/nginx/Traefik, set
+   `Server.BehindProxy=true` (`Server__BehindProxy=true`) so client IPs come
+   from `X-Forwarded-For` for throttle + abuse logs. HSTS is the proxy's job.
+2. Direct HTTPS: mount cert+key and set `Server.Https.Enabled/CertPath/KeyPath`
+   (`Server__Https__*`); the API then also emits HSTS itself.
+
+### Rate-limit tuning
+
+`throttle.maxRequests` per `throttle.timeWindow` (defaults `1000` / 5 min),
+per client IP. Rejections are `429 {code:RequestThrottledException}` with a
+`Retry-After` header (seconds to window reset). `0` disables. Note: throttle
+values are read at startup (restart to apply); only the log level is hot.

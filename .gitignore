@@ -50,3 +50,7 @@ src/KeepmarkApi/appsettings.Local.json
 
 # Local secrets (never commit)
 .env
+# Runtime data (never commit)
+logs/
+backups/
+mongo-data/

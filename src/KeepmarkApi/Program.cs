@@ -27,6 +27,15 @@ builder.Services.AddHostedService<LogLevelWatcher>();
 builder.Logging.SetMinimumLevel(LogLevel.Trace);
 builder.Logging.AddFilter((_, _, level) => level >= gate.MinLevel);
 
+// File sink (log.file settings). Failures disable it with a warning;
+// the gate still applies on the fly like the console sink.
+if (settings.Log.File.Enabled)
+{
+    builder.Logging.AddProvider(new RotatingFileLoggerProvider(
+        settings.Log.File.Path, settings.Log.File.Level,
+        settings.Log.File.RotationPeriod, settings.Log.File.RotatedFilesToKeep, gate));
+}
+
 if (!IsValidLocation(settings.Location))
 {
     Console.Error.WriteLine("Location is not a valid country code, exiting");
@@ -84,6 +93,9 @@ if (settings.Throttle.MaxRequests > 0)
                 LogSanitizer.Path(ctx.HttpContext.Request.Path.ToString()),
                 ctx.HttpContext.Connection.RemoteIpAddress);
             ctx.HttpContext.Response.ContentType = "application/json";
+            // Tell well-behaved clients when the window resets (seconds).
+            var retryAfter = Math.Max(1, (int)Math.Ceiling(settings.Throttle.TimeWindow / 1000.0));
+            ctx.HttpContext.Response.Headers.RetryAfter = retryAfter.ToString();
             var (status, code, message) = ErrorMap.Map(new RequestThrottledException());
             ctx.HttpContext.Response.StatusCode = status;
             await ctx.HttpContext.Response.WriteAsync(
@@ -118,6 +130,12 @@ if (settings.Server.BehindProxy)
 if (!string.IsNullOrEmpty(settings.Server.RelativePath) && settings.Server.RelativePath != "/")
 {
     app.UsePathBase(settings.Server.RelativePath);
+}
+
+// HSTS only when serving HTTPS directly (behind a TLS proxy the proxy owns it).
+if (settings.Server.Https.Enabled)
+{
+    app.UseHsts();
 }
 
 // Security headers (helmet + nocache equivalents).
