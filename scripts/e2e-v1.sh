@@ -12,7 +12,7 @@ code_of() { python3 -c "import json,sys; print(json.load(sys.stdin).get('code','
 echo "--- info ---"
 INFO=$(curl -s -H "Accept-Version: $V" "$BASE/info")
 chk "info.status" "1" "$(echo "$INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")"
-chk "info.version" "1.2.0" "$(echo "$INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")"
+chk "info.version" "${INFO_VER:-1.2.0}" "$(echo "$INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])")"
 
 echo "--- create v2 ---"
 C=$(curl -s -H "Accept-Version: $V" -H "Content-Type: application/json" -d '{"version":"1.8.0"}' "$BASE/bookmarks")
