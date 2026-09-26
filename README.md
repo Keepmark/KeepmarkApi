@@ -161,7 +161,7 @@ logged. Only the log level is hot; throttle and the rest need a restart.
 ### File logs
 
 `log.file` settings honored: path, level, `rotationPeriod` (`1d`, `12h`,
-`hourly`…, Node format), `rotatedFilesToKeep` (`api.log` → `.0` → `.1`…).
+`hourly`…, Node format), `rotatedFilesToKeep` (`api.log` → `.1` → `.2`…).
 In Docker: `/app/logs/api.log` (`api-logs` volume); read with
 `docker compose exec api cat /app/logs/api.log`. Unwritable path → sink
 disables itself with a warning.
