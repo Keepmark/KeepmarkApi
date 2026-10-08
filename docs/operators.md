@@ -28,7 +28,7 @@ exactly as before — no migration on their side, ever.
 IDs), plus: security headers + `no-store` by default, per-IP throttling with
 `Retry-After`, origin allow-list, proxied deployments via `X-Forwarded-For`
 only when you say so. The codebase is small enough to audit in an afternoon
-(~2k LOC of logic, 141 unit tests).
+(~2k LOC of logic, 144 unit tests).
 
 ## Migration in 10 minutes (zero user impact)
 
@@ -58,6 +58,16 @@ format (UUID binary subtype 4) and the settings keys are the same.
    never changed, so rollback is instant.
 6. Old syncs show `revision: 0` until their next write; everything else works
    from second one.
+
+> **Binding note:** Kestrel listens on `AnyIP:Port` — `Server__Host` is display
+> only, NOT a bind restriction. A reused `127.0.0.1` does not make you
+> localhost-only on bare metal; restrict exposure via firewall or proxy.
+> **Proxy note:** set `Server__BehindProxy=true` ONLY behind a proxy you control
+> (single trusted hop, `ForwardLimit=1`). Without it, all clients share the
+> gateway IP for throttling and the daily new-sync quota; with it on an exposed
+> port, `X-Forwarded-For` can be forged to rotate identities past both.
+> Terminate TLS at the proxy (recommended) — the app emits HSTS only in direct
+> HTTPS mode.
 
 ## FAQ
 

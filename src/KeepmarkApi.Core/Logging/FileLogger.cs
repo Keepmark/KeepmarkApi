@@ -140,7 +140,9 @@ public sealed class RotatingFileLoggerProvider : ILoggerProvider
                     .Append(formatter(state, ex));
                 if (ex is not null)
                 {
-                    line.Append(" :: ").Append(ex);
+                    // Exceptions (e.g. Mongo driver errors) can echo filter
+                    // values — sync IDs are bearer tokens, scrub them too.
+                    line.Append(" :: ").Append(LogSanitizer.Path(ex.ToString()));
                 }
 
                 parent._writer.WriteLine(line.ToString());
@@ -149,21 +151,33 @@ public sealed class RotatingFileLoggerProvider : ILoggerProvider
     }
 }
 
-/// <summary>Parses Node rotationPeriod values: "$number$scope" (ms,h,d,w,m,y)
-/// or names hourly/daily/weekly/monthly/yearly.</summary>
+/// <summary>Parses Node rotationPeriod values: "$number$scope" (ms,s,m,h,d,w,M,y)
+/// or names hourly/daily/weekly/monthly/yearly. Suffixes are case-sensitive:
+/// "m" = minutes, "M" = months (30d), "s" = seconds — lowercasing them (as
+/// before) mapped "30m" to 900 days and dropped "5s" to the 1-day fallback.</summary>
 public static class PeriodParser
 {
     public static TimeSpan Parse(string? period)
-        => period?.Trim().ToLowerInvariant() switch
+    {
+        if (period is not null)
         {
-            "hourly" => TimeSpan.FromHours(1),
-            "daily" => TimeSpan.FromDays(1),
-            "weekly" => TimeSpan.FromDays(7),
-            "monthly" => TimeSpan.FromDays(30),
-            "yearly" => TimeSpan.FromDays(365),
-            { } p when TrySuffixed(p, out var ts) => ts,
-            _ => TimeSpan.FromDays(1),
-        };
+            switch (period.Trim().ToLowerInvariant())
+            {
+                case "hourly": return TimeSpan.FromHours(1);
+                case "daily": return TimeSpan.FromDays(1);
+                case "weekly": return TimeSpan.FromDays(7);
+                case "monthly": return TimeSpan.FromDays(30);
+                case "yearly": return TimeSpan.FromDays(365);
+            }
+
+            if (TrySuffixed(period.Trim(), out var ts))
+            {
+                return ts;
+            }
+        }
+
+        return TimeSpan.FromDays(1);
+    }
 
     private static bool TrySuffixed(string p, out TimeSpan ts)
     {
@@ -192,10 +206,12 @@ public static class PeriodParser
         ts = scope switch
         {
             "ms" => TimeSpan.FromMilliseconds(n),
+            "s" => TimeSpan.FromSeconds(n),
+            "m" => TimeSpan.FromMinutes(n),
             "h" => TimeSpan.FromHours(n),
             "d" => TimeSpan.FromDays(n),
             "w" => TimeSpan.FromDays(n * 7),
-            "m" => TimeSpan.FromDays(n * 30),
+            "M" => TimeSpan.FromDays(n * 30),
             "y" => TimeSpan.FromDays(n * 365),
             _ => TimeSpan.FromDays(-1),
         };

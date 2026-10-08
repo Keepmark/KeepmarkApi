@@ -16,11 +16,18 @@ set -a
 set +a
 STAMP=$(date +%Y%m%d-%H%M%S)
 # Credentials travel via container env (invisible to host ps); the lock file
-# serializes overlapping cron runs.
+# serializes overlapping cron runs. Stale locks (kill -9, >2h old) are
+# reclaimed so one dead run doesn't silence all future backups.
 LOCK=/tmp/keepmarkapi-backup.lock
 if ! mkdir "$LOCK" 2>/dev/null; then
-  echo "backup already running, skipping" >&2
-  exit 0
+  if find "$LOCK" -mmin +120 >/dev/null 2>&1 && [ -n "$(find "$LOCK" -mmin +120 2>/dev/null)" ]; then
+    echo "removing stale backup lock (>2h)" >&2
+    rmdir "$LOCK" 2>/dev/null || { echo "backup already running, skipping" >&2; exit 0; }
+    mkdir "$LOCK" 2>/dev/null || { echo "backup already running, skipping" >&2; exit 0; }
+  else
+    echo "backup already running, skipping" >&2
+    exit 0
+  fi
 fi
 trap 'rmdir "$LOCK"' EXIT INT TERM
 docker compose exec -T \

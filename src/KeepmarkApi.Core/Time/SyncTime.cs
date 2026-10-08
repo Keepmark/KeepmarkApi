@@ -4,6 +4,12 @@ namespace KeepmarkApi.Time;
 /// is always UTC with exactly 3 fractional digits ("...000Z").</summary>
 public static class SyncTime
 {
+    private static readonly string[] IsoFormats =
+    [
+        "yyyy-MM-ddTHH:mm:ssK",
+        "yyyy-MM-ddTHH:mm:ss.FFFFFFFK",
+    ];
+
     public static string ToIsoString(DateTime dt)
         => (dt.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(dt, DateTimeKind.Utc) : dt.ToUniversalTime())
             .ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
@@ -40,7 +46,9 @@ public static class SyncTime
             return false;
         }
 
-        if (!DateTime.TryParse(incoming, null,
+        // ISO-8601 only, culture-independent (Node compares canonical
+        // toISOString() strings; loose local formats must never match).
+        if (!DateTime.TryParseExact(incoming, IsoFormats, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
         {
             return false;

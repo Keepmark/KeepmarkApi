@@ -65,7 +65,7 @@ public sealed class LogicTests
         await logic.CreateV1Async("d", "9.9.9.9", Now);
         Assert.Single(logs.Logs);
         Assert.Equal("9.9.9.9", logs.Logs[0].Ip);
-        Assert.Equal(DateTime.Today.AddDays(1), logs.Logs[0].ExpiresAt);
+        Assert.Equal(Now.Date.AddDays(1), logs.Logs[0].ExpiresAt);
     }
 
     [Fact]
@@ -337,6 +337,23 @@ public sealed class LogicTests
         var store = new FakeBookmarkStore { ThrowOnCount = true };
         var info = await new InfoLogic(new BookmarksLogic(store, new FakeSyncLogStore(), s), s).GetInfoAsync();
         Assert.Equal(2, info.Status);
+    }
+
+    [Fact]
+    public async Task Info_MaxSyncsZero_StillDetectsDeadDb()
+    {
+        var s = Settings(s => s.MaxSyncs = 0);
+        var store = new FakeBookmarkStore { ThrowOnCount = true };
+        var info = await new InfoLogic(new BookmarksLogic(store, new FakeSyncLogStore(), s), s).GetInfoAsync();
+        Assert.Equal(2, info.Status);
+    }
+
+    [Fact]
+    public async Task Info_MaxSyncsZero_OnlineWhenDbAnswers()
+    {
+        var s = Settings(s => s.MaxSyncs = 0);
+        var info = await new InfoLogic(new BookmarksLogic(new FakeBookmarkStore(), new FakeSyncLogStore(), s), s).GetInfoAsync();
+        Assert.Equal(1, info.Status);
     }
 
     [Fact]

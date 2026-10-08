@@ -24,36 +24,35 @@ internal static class VersionHeader
 /// Version dispatch: '~1.0.0' → v1 handlers, '^1.1.3' → v2 handlers.</summary>
 [ApiController]
 [Route("bookmarks")]
-public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksController> log) : ControllerBase
+public sealed class BookmarksController(BookmarksLogic logic) : ControllerBase
 {
     private string? Ip => HttpContext.Connection.RemoteIpAddress?.ToString();
     private string Accepted => VersionHeader.Resolve(Request);
     private bool Extended => ApiVersioning.IsExtendedContract(Accepted);
 
-    private static void RequireValidBody(ControllerBase c)
+    /// <summary>Reads the body like express.json(): non-JSON content types and
+    /// empty bodies are {} (→ 400 RequiredData), malformed JSON → 500
+    /// Unspecified. The Kestrel body cap still applies while reading (413).</summary>
+    private async Task<JsonElement> ReadBodyAsync(CancellationToken ct)
     {
-        // Malformed JSON must keep the {code,message} contract (Node: 500 Unspecified).
-        if (!c.ModelState.IsValid)
-        {
-            throw new UnspecifiedException();
-        }
+        using var ms = new MemoryStream();
+        await Request.Body.CopyToAsync(ms, ct).ConfigureAwait(false);
+        return BookmarkRequests.ParseBody(Request.ContentType, ms.GetBuffer().AsSpan(0, (int)ms.Length));
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] JsonElement body, CancellationToken ct)
+    public async Task<IActionResult> Create(CancellationToken ct)
     {
-        RequireValidBody(this);
+        var body = await ReadBodyAsync(ct).ConfigureAwait(false);
         var route = ApiVersioning.BookmarksRouteVersion(Accepted);
         var now = DateTime.UtcNow;
         if (route == 1)
         {
             var res = await logic.CreateV1Async(BookmarkRequests.ParseCreateV1(body), Ip, now, ct).ConfigureAwait(false);
-            log.LogInformation("New bookmarks sync created");
             return Ok(Extended ? res : ResponseShapes.Strip(res));
         }
 
         var res2 = await logic.CreateV2Async(BookmarkRequests.ParseCreateV2(body), Ip, now, ct).ConfigureAwait(false);
-        log.LogInformation("New bookmarks sync created");
         return Ok(Extended ? res2 : ResponseShapes.Strip(res2));
     }
 
@@ -101,14 +100,15 @@ public sealed class BookmarksController(BookmarksLogic logic, ILogger<BookmarksC
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(string id, [FromBody] JsonElement body, CancellationToken ct)
+    public async Task<IActionResult> Update(string id, CancellationToken ct)
     {
-        RequireValidBody(this);
+        var body = await ReadBodyAsync(ct).ConfigureAwait(false);
         var route = ApiVersioning.BookmarksRouteVersion(Accepted);
         if (route == 1)
         {
             var (bookmarks, _, _) = BookmarkRequests.ParseUpdate(body);
-            return Ok(await logic.UpdateV1Async(id, bookmarks, DateTime.UtcNow, ct).ConfigureAwait(false));
+            var res1 = await logic.UpdateV1Async(id, bookmarks, DateTime.UtcNow, ct).ConfigureAwait(false);
+            return Ok(Extended ? res1 : ResponseShapes.Strip(res1));
         }
 
         var (bookmarks2, lastUpdated, version) = BookmarkRequests.ParseUpdate(body);
@@ -205,7 +205,7 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
           body { font-family: system-ui, sans-serif; background: #14171c; color: #e8eaed;
                  display: flex; justify-content: center; padding: 4rem 1rem; margin: 0; }
           main { max-width: 34rem; text-align: center; }
-          img { width: 96px; height: auto; }
+          img { width: 96px; height: auto; background: #fff; border-radius: 24px; padding: 12px; }
           h1 { font-size: 1.6rem; margin: 1rem 0 0.25rem; }
           .version { color: #9aa0a6; margin-bottom: 1.5rem; }
           .status { display: inline-block; padding: 0.3rem 0.9rem; border-radius: 999px;

@@ -9,6 +9,7 @@ using KeepmarkApi.Logging;
 using KeepmarkApi.Middleware;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Console;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,12 +29,24 @@ builder.Services.AddSingleton(gate);
 builder.Services.AddHostedService<LogLevelWatcher>();
 builder.Logging.SetMinimumLevel(LogLevel.Trace);
 builder.Logging.AddFilter((_, _, level) => level >= gate.MinLevel);
-
-// Console sink honors log.stdout.enabled (default builder already adds it).
-if (!settings.Log.Stdout.Enabled)
+// Console sink: one provider with UTC timestamps + single lines (docker
+// logs carry no format of their own — the default SimpleConsole prints no
+// timestamp). Honors log.stdout.enabled.
+builder.Logging.ClearProviders();
+if (settings.Log.Stdout.Enabled)
 {
-    builder.Logging.ClearProviders();
+    builder.Logging.AddSimpleConsole(o =>
+    {
+        o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ ";
+        o.UseUtcTimestamp = true;
+        o.SingleLine = true;
+    });
 }
+// ASP.NET pipeline chatter (routing/MVC/diagnostics) at info buries the app
+// lines (request summaries, creations, refusals). Cap it at warn; the hot
+// gate still applies on top.
+builder.Logging.AddFilter("Microsoft.AspNetCore",
+    level => level >= LogLevel.Warning && level >= gate.MinLevel);
 
 // File sink (log.file settings). Failures disable it with a warning;
 // the gate still applies on the fly like the console sink.
@@ -59,7 +72,11 @@ builder.WebHost.ConfigureKestrel(kestrel =>
     {
         if (settings.Server.Https.Enabled)
         {
-            listen.UseHttps(settings.Server.Https.CertPath, settings.Server.Https.KeyPath);
+            // Cert+key are PEM files (Node parity): build the cert explicitly.
+            // The (pfxPath, password) overload must NOT be used with PEM paths.
+            var cert = System.Security.Cryptography.X509Certificates.X509Certificate2
+                .CreateFromPemFile(settings.Server.Https.CertPath, settings.Server.Https.KeyPath);
+            listen.UseHttps(cert);
         }
     });
 });
@@ -171,6 +188,31 @@ app.Use(async (ctx, next) =>
     await next().ConfigureAwait(false);
 });
 
+// Request log with redacted sync IDs (IDs are bearer tokens — never log full).
+// Info: one summary line. Debug (verbose): IP, version header, sizes, timing.
+// Registered OUTSIDE the error handler and in a finally, so error responses
+// (401/409/412/503…) and throttle rejections are summarized too.
+app.Use(async (ctx, next) =>
+{
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    try
+    {
+        await next().ConfigureAwait(false);
+    }
+    finally
+    {
+        sw.Stop();
+        var path = LogSanitizer.Path(ctx.Request.Path.ToString());
+        app.Logger.LogInformation("{Method} {Path} {Status} {Ms}ms",
+            ctx.Request.Method, path, ctx.Response.StatusCode, sw.ElapsedMilliseconds);
+        app.Logger.LogDebug("{Method} {Path} {Status} {Ms}ms ip={Ip} version={Version} reqBytes={Req} resBytes={Res}",
+            ctx.Request.Method, path, ctx.Response.StatusCode, sw.ElapsedMilliseconds,
+            ctx.Connection.RemoteIpAddress,
+            ctx.Request.Headers.TryGetValue("Accept-Version", out var v) ? v.ToString() : "(default)",
+            ctx.Request.ContentLength, ctx.Response.ContentLength);
+    }
+});
+
 app.UseCors();
 if (settings.Throttle.MaxRequests > 0)
 {
@@ -184,26 +226,6 @@ app.UseMiddleware<OriginGuardMiddleware>();
 // Static brand assets (logo.png, favicon.png). Exact files only —
 // missing paths fall through to controllers and keep the JSON 404 contract.
 app.UseStaticFiles();
-
-// Request log with redacted sync IDs (IDs are bearer tokens — never log full).
-// Info: one summary line. Debug (verbose): IP, version header, sizes, timing.
-app.Logger.LogInformation("Service started at {Url} (log level: {Level})",
-    BuildUrl(settings), XbsLogLevels.Name(gate.MinLevel));
-app.Logger.LogDebug("Effective settings: {Settings}", DescribeSettings(settings));
-app.Use(async (ctx, next) =>
-{
-    var sw = System.Diagnostics.Stopwatch.StartNew();
-    await next().ConfigureAwait(false);
-    sw.Stop();
-    var path = LogSanitizer.Path(ctx.Request.Path.ToString());
-    app.Logger.LogInformation("{Method} {Path} {Status} {Ms}ms",
-        ctx.Request.Method, path, ctx.Response.StatusCode, sw.ElapsedMilliseconds);
-    app.Logger.LogDebug("{Method} {Path} {Status} {Ms}ms ip={Ip} version={Version} reqBytes={Req} resBytes={Res}",
-        ctx.Request.Method, path, ctx.Response.StatusCode, sw.ElapsedMilliseconds,
-        ctx.Connection.RemoteIpAddress,
-        ctx.Request.Headers.TryGetValue("Accept-Version", out var v) ? v.ToString() : "(default)",
-        ctx.Request.ContentLength, ctx.Response.ContentLength);
-});
 
 app.MapControllers();
 
@@ -242,6 +264,13 @@ static bool IsValidLocation(string location)
     if (string.IsNullOrEmpty(location))
     {
         return true;
+    }
+
+    // ISO 3166 alpha-2 only: RegionInfo alone also accepts culture names
+    // ("en-US") and 3-letter codes, which Node's country-list rejects.
+    if (location.Length != 2 || !location.All(char.IsAsciiLetter))
+    {
+        return false;
     }
 
     try

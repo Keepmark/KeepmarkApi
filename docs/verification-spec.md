@@ -70,6 +70,8 @@ plus the documented opt-in v1.2 extensions — and nothing more.
   every write instant to whole milliseconds (`SyncTime.TruncateToMs`) and compares
   parsed instants at ms precision — never raw strings. Equivalent spellings
   (`.87` vs `.870`) MUST agree; unparseable bases MUST be treated as mismatch (§5.3).
+  Parsing is ISO-8601 only and culture-invariant (`TryParseExact`): loose local
+  formats (`09/25/2026 12:00:00`) never match.
 - **REQ-G5 — Sync IDs.** Wire form: 32 lowercase hex chars; dashed UUID form
   accepted and stripped (`SyncId.Parse`). Any other input → `401
   InvalidSyncIdException` with message `Argument is not a valid UUID string`.
@@ -84,8 +86,10 @@ plus the documented opt-in v1.2 extensions — and nothing more.
   to `404 {code:NotImplementedException,…}` — but only when nothing was written yet
   (explicit bodies such as `405 NewSyncsForbidden` keep their own response).
 - **REQ-G8 — Malformed JSON.** A syntactically invalid body MUST return
-  `500 {code:UnspecifiedException,…}` (Node behaviour), never 400. Implemented via
-  `SuppressModelStateInvalidFilter` + `RequireValidBody`.
+  `500 {code:UnspecifiedException,…}` (Node behaviour), never 400. Bodies are
+  read like `express.json()` (`BookmarkRequests.ParseBody`): a missing or
+  non-JSON `Content-Type`, or an empty body, is `{}` (→ `400
+  RequiredDataNotFoundException`), never a bare `415`/empty response.
 - **REQ-G9 — Null omission.** DTOs omit null-valued keys (`WhenWritingNull`), so
   legacy shapes contain exactly the keys Node sends (§4).
 
@@ -139,6 +143,8 @@ except `304` (§6.4) and `204` (favicon missing).
   Start `2`; if `Status.Online` is false → stay `2`; else count syncs: accepting
   (§5.1) → `1`, else `3`. A failing count keeps `2` AND logs a Warning
   (operators must see a likely-DB-down signal; Node silently stays offline).
+  With `MaxSyncs = 0` the acceptance check needs no count, so `/info` still
+  performs one store round trip (`ProbeStoreAsync`) to detect a dead DB.
 
 ### 4.2 `POST /bookmarks`
 
@@ -198,7 +204,10 @@ except `304` (§6.4) and `204` (favicon missing).
 ### 4.6 `HEAD /bookmarks/:id` (X only)
 
 - **REQ-H1.** Read-only: MUST NOT touch `lastAccessed` (metadata polling neither
-  extends TTL nor costs a write). Headers: `ETag: "<hash>"` (only when hash
+  extends TTL nor costs a write). Operator note: with the optional
+  `bookmarks.lastAccessed` TTL index (`api/README.md`, 3 weeks), a client that
+  polled ONLY via `HEAD`/`304` would let its sync expire; Keepmark clients also
+  call `GET …/lastUpdated` (touching) on every poll. Headers: `ETag: "<hash>"` (only when hash
   non-null), `Last-Modified` (`.000` format), `X-Sync-Revision`, `X-Sync-Size`.
   `200` with empty body. Missing → `401`. Legacy → 404 (§REQ-V5).
 
@@ -288,7 +297,8 @@ except `304` (§6.4) and `204` (favicon missing).
 - **REQ-P5 — Atomicity.** Timestamp CAS and revision CAS are EACH a single
   `findOneAndUpdate` filtered on (`_id` + base). Win returns the post-write
   document; loss performs exactly one follow-up read to distinguish `401`
-  (missing) from `409` (conflict). No read-then-write anywhere on the update path.
+  (missing) from `409` (conflict). The v1 blind write and the v2 no-base update
+  are intentionally read-then-write (Node parity: last-writer-wins, §REQ-U1/U2).
   Concurrent same-base pushes MUST resolve to exactly one `200` + N−1 `409`s
   (Node returns `[200,200]` — that upstream race is the bug being fixed, §11.3).
 - **REQ-P6 — Touch.** Read-touch sets ONLY `lastAccessed` (single-field update,
@@ -342,7 +352,8 @@ tracked `{}` placeholder `appsettings.Local.json`.
 
 ### 8.2 Location
 
-- REQ-L1: `IsValidLocation` via `RegionInfo`; empty = valid; invalid → stderr
+- REQ-L1: `IsValidLocation`: exactly two ASCII letters AND known to `RegionInfo`
+  (culture names like `en-US` / 3-letter codes refused); empty = valid; invalid → stderr
   `Location is not a valid country code, exiting`, exit 1. (Node uses
   `country-list`; codes agree, names may differ — accepted.)
 
@@ -374,7 +385,8 @@ tracked `{}` placeholder `appsettings.Local.json`.
 ## 9. Logging and observability
 
 - **REQ-LOG1 — Levels.** Bunyan-compatible names (§REQ-CFG2). Default `info`.
-  `info`: one-line request summaries (`METHOD path status ms`), creations,
+  `info`: one-line request summaries (`METHOD path status ms`, written in a
+  `finally` outside the error handler, so error responses and 429s too), creations,
   daily-limit refusals, conflicts, 5xx, throttle rejections, startup line.
   `debug`/`trace` (verbose): per-request IP/version/sizes, per-Mongo-op timings,
   every logic decision with values, effective settings dump.
@@ -428,7 +440,7 @@ tracked `{}` placeholder `appsettings.Local.json`.
 
 ## 11. Test evidence (what exists, what must stay green)
 
-- **REQ-T1 — Unit.** `dotnet test` — 144 xUnit, no infrastructure. Covers: version
+- **REQ-T1 — Unit.** `dotnet test` — 156 xUnit, no infrastructure. Covers: version
   dispatch matrix (incl. `1.1.2 → v2`, `v1.2.0 → v2`), request coercion
   (`42 → "42"`, objects → absent), error map, timestamp truncation/parsing
   (`.87 == .870`), SyncId round-trip/rejection, CAS win/lose/missing via fakes
@@ -513,6 +525,9 @@ For each item: state PASS/FAIL with file:line + reproduction (command or test na
 7. File rotation is `.1`-based (`api.log → .1 → .2…`); README's `.0` shorthand is loose.
 8. `message` sanitizer strips only `<script>` blocks (Node parity; residual XSS is an
    accepted, documented operator boundary — the message is operator-authored).
+9. `expiresAt` uses the UTC calendar day while Node's `moment()` uses the server
+   local day — identical when `TZ=UTC` (all containers), one-day-boundary skew
+   possible on bare metal with non-UTC TZ.
 
 ## 14. Deliverables expected from the reviewer
 
@@ -527,7 +542,7 @@ For each item: state PASS/FAIL with file:line + reproduction (command or test na
 
 ```sh
 cd KeepmarkApi
-dotnet test                                   # unit, no infra (expect 144 pass)
+dotnet test                                   # unit, no infra (expect 156 pass)
 cp .env.example .env                          # set real passwords, chmod 600 .env
 docker compose up --build -d                  # API :8080 in-container
 BASE=http://localhost:<API_PORT> ./scripts/e2e-v1.sh    # expect 26/26

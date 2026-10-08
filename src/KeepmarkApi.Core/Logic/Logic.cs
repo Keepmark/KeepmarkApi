@@ -33,6 +33,11 @@ public sealed class BookmarksLogic(
         }
     }
 
+    /// <summary>Cheap store round trip for /info: with MaxSyncs = 0 the
+    /// acceptance check never touches the DB, so a dead DB would still report
+    /// "online" without this probe.</summary>
+    public Task<long> ProbeStoreAsync(CancellationToken ct = default) => store.CountAsync(ct);
+
     public Task<bool> IsAcceptingNewSyncsAsync(CancellationToken ct = default)
         => IsAcceptingNewSyncsAsync(settings, store.CountAsync, _log, ct);
 
@@ -72,7 +77,8 @@ public sealed class BookmarksLogic(
             _log.LogDebug("NewSyncsLimit: hit={Hit} ipSet={HasIp} limit={Limit}", hits, !string.IsNullOrEmpty(ip), settings.DailyNewSyncsLimit);
             if (hits)
             {
-                _log.LogInformation("New sync refused: daily limit exceeded");
+                _log.LogInformation("New sync refused: daily new-sync limit exceeded (ip={Ip} limit={Limit}/day)",
+                    ip ?? "(unknown)", settings.DailyNewSyncsLimit);
                 throw new NewSyncsLimitExceededException();
             }
         }
@@ -223,7 +229,13 @@ public sealed class BookmarksLogic(
 
         _log.LogDebug("UpdateV2: no base, updating id={Id}", LogSanitizer.SyncId(id));
         var doc = await store.UpdateDataV2Async(idBytes, bookmarks, version, now, ct).ConfigureAwait(false);
-        return ExtendedResponses.Updated(doc!);
+        if (doc is null)
+        {
+            _log.LogDebug("UpdateV2: lost race on no-base update id={Id}", LogSanitizer.SyncId(id));
+            throw new SyncNotFoundException();
+        }
+
+        return ExtendedResponses.Updated(doc);
     }
 
     private async Task<UpdateBookmarksResponse2> UpdateV2ByRevisionAsync(
@@ -338,6 +350,11 @@ public sealed class InfoLogic(BookmarksLogic bookmarks, XbsSettings settings, IL
         {
             try
             {
+                if (settings.MaxSyncs == 0)
+                {
+                    await bookmarks.ProbeStoreAsync(ct).ConfigureAwait(false);
+                }
+
                 var accepting = await bookmarks.IsAcceptingNewSyncsAsync(ct).ConfigureAwait(false);
                 info.Status = accepting ? (int)ServiceStatus.Online : (int)ServiceStatus.NoNewSyncs;
                 _log.LogDebug("GetInfo: status={Status}", info.Status);

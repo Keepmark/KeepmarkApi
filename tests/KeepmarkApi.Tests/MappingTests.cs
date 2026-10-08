@@ -169,11 +169,47 @@ public sealed class MappingTests
     [InlineData("2026-09-25T12:00:00.0001000Z", true)] // sub-ms echo truncates equal
     [InlineData("2026-09-25T12:00:00.001Z", false)]
     [InlineData("not-a-date", false)]
+    [InlineData("09/25/2026 12:00:00", false)] // loose culture formats never match (Node: string compare)
+    [InlineData("2026-09-25 12:00:00Z", false)]
+    [InlineData("2026-09-25T14:00:00.000+02:00", true)] // same instant, explicit offset
     [InlineData(null, true)] // absent base skips the check
     public void SyncTime_SameInstant(string? incoming, bool expected)
     {
         var existing = new DateTime(2026, 9, 25, 12, 0, 0, DateTimeKind.Utc);
         Assert.Equal(expected, SyncTime.SameInstant(incoming, existing));
+    }
+
+    // ---- request bodies (express.json parity) ----
+
+    [Theory]
+    [InlineData(null, "{\"version\":\"1.8.0\"}")] // no content type → {} like express.json
+    [InlineData("text/plain", "{\"version\":\"1.8.0\"}")]
+    [InlineData("application/json", "")] // empty JSON body → {}
+    public void ParseBody_NonJsonOrEmpty_IsEmptyObject_ThenRequiredData400(string? contentType, string raw)
+    {
+        var body = KeepmarkApi.Requests.BookmarkRequests.ParseBody(contentType, System.Text.Encoding.UTF8.GetBytes(raw));
+        Assert.Equal(System.Text.Json.JsonValueKind.Object, body.ValueKind);
+        var ex = Assert.Throws<KeepmarkApi.Errors.RequiredDataNotFoundException>(
+            () => KeepmarkApi.Requests.BookmarkRequests.ParseCreateV2(body));
+        Assert.Equal(400, ex.StatusCode);
+    }
+
+    [Fact]
+    public void ParseBody_Json_IsParsed()
+    {
+        var body = KeepmarkApi.Requests.BookmarkRequests.ParseBody(
+            "application/json; charset=utf-8", System.Text.Encoding.UTF8.GetBytes("{\"version\":\"1.8.0\"}"));
+        Assert.Equal("1.8.0", KeepmarkApi.Requests.BookmarkRequests.ParseCreateV2(body));
+    }
+
+    [Theory]
+    [InlineData("{\"version\":")]
+    [InlineData("{} trailing")]
+    public void ParseBody_MalformedJson_Is500Unspecified(string raw)
+    {
+        var ex = Assert.Throws<KeepmarkApi.Errors.UnspecifiedException>(
+            () => KeepmarkApi.Requests.BookmarkRequests.ParseBody("application/json", System.Text.Encoding.UTF8.GetBytes(raw)));
+        Assert.Equal(500, ex.StatusCode);
     }
 
     // ---- settings ----
@@ -309,5 +345,20 @@ public sealed class MappingTests
         await Assert.ThrowsAsync<NewSyncsForbiddenException>(() => logic.CreateV1Async("d", null, DateTime.UtcNow));
         Assert.Contains(log.Events, e => e.Level == LogLevel.Information);
         Assert.Contains(log.Events, e => e.Level == LogLevel.Debug); // decision trace
+    }
+
+    [Fact]
+    public async Task Logs_DailyLimitRefusalShowsIpAndLimit()
+    {
+        var log = new TestLogger<BookmarksLogic>();
+        var s = new XbsSettings { DailyNewSyncsLimit = 2 };
+        var syncLogs = new FakeSyncLogStore();
+        syncLogs.Logs.Add(("1.2.3.4", DateTime.UtcNow.AddDays(1), DateTime.UtcNow));
+        syncLogs.Logs.Add(("1.2.3.4", DateTime.UtcNow.AddDays(1), DateTime.UtcNow));
+        var logic = new BookmarksLogic(new FakeBookmarkStore(), syncLogs, s, log);
+        await Assert.ThrowsAsync<NewSyncsLimitExceededException>(() => logic.CreateV1Async("d", "1.2.3.4", DateTime.UtcNow));
+        var entry = Assert.Single(log.Events, e => e.Level == LogLevel.Information);
+        Assert.Contains("1.2.3.4", entry.Message);
+        Assert.Contains("limit=2/day", entry.Message);
     }
 }

@@ -7,6 +7,33 @@ namespace KeepmarkApi.Requests;
 /// Pure (System.Text.Json only) so it is unit-testable.</summary>
 public static class BookmarkRequests
 {
+    private static readonly System.Text.Json.JsonElement EmptyObject =
+        System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone();
+
+    /// <summary>Request body as express.json() sees it: only JSON content
+    /// types are parsed; any other/missing content type or an empty body is
+    /// <c>{}</c> (→ the 400 RequiredData contract, never a bare 415). A
+    /// syntactically invalid JSON body → 500 Unspecified (REQ-G8).</summary>
+    public static System.Text.Json.JsonElement ParseBody(string? contentType, ReadOnlySpan<byte> raw)
+    {
+        if (string.IsNullOrEmpty(contentType)
+            || !contentType.Contains("json", StringComparison.OrdinalIgnoreCase)
+            || raw.IsEmpty)
+        {
+            return EmptyObject;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(raw.ToArray());
+            return doc.RootElement.Clone();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            throw new UnspecifiedException();
+        }
+    }
+
     public static string ParseCreateV1(System.Text.Json.JsonElement body)
         => RequiredString(body, "bookmarks");
 

@@ -8,7 +8,7 @@ work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
 ## Status
 
 - Contract: v1.1.x frozen (Node parity) + v1.2 extended (opt-in, see below).
-- Tests: 144 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
+- Tests: 156 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
   `scripts/e2e-v12.sh` (19 checks) against live Mongo, all green.
 - Verified compat matrix: new⇄old clients/servers, concurrent-push chaos —
   see [Testing](#testing).
@@ -47,7 +47,8 @@ work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
 
 ## API contracts
 
-Negotiation via the `Accept-Version` header (missing → server version).
+Negotiation via the `Accept-Version` header (missing → `1.1.13`, the last legacy
+version — never the extended contract).
 Error shape is always `{code, message}` with the Node status codes.
 
 | Call | v1.1 | v1.2 (`^1.2.0`) |
@@ -57,8 +58,8 @@ Error shape is always `{code, message}` with the Node status codes.
 | `GET /bookmarks/:id` | `{bookmarks, version, lastUpdated}` | + `meta`; honors `If-None-Match` → `304` (ignored outside v1.2) |
 | `PUT /bookmarks/:id` | v1: blind write · v2: `lastUpdated` base check → `409` | + `baseRevision` (atomic CAS on revision, wins over timestamp) |
 | `GET /:id/lastUpdated`, `GET /:id/version` | as Node | unchanged |
-| `HEAD /bookmarks/:id` | `412` | `ETag`, `Last-Modified`, `X-Sync-Revision`, `X-Sync-Size` |
-| `DELETE /bookmarks/:id` | `412` | `200`, sync removed |
+| `HEAD /bookmarks/:id` | `404` | `ETag`, `Last-Modified`, `X-Sync-Revision`, `X-Sync-Size` |
+| `DELETE /bookmarks/:id` | `404` | `200`, sync removed |
 | `GET /` | landing page (logo, live status, credits) | same |
 
 `meta = {revision, hash, size, createdAt}`. `revision` starts at 1 and bumps on
@@ -149,7 +150,10 @@ Levels mirror bunyan. `info` (default): request summaries, creations, refusals,
 conflicts, 5xx. `debug`/`trace`: every decision with values, per-request
 details (IP, version header, byte sizes), per-Mongo-op timings, settings dump.
 Bodies, keys and full sync IDs are never logged (IDs truncated `ab12…ef`; DB
-password excluded from the dump).
+password excluded from the dump). Console lines (what `docker compose logs`
+shows) carry UTC timestamps and are single-line; ASP.NET pipeline chatter is
+capped at `warn` so app lines stay visible. Refusals state the cause with
+values (e.g. `daily new-sync limit exceeded (ip=… limit=3/day)`).
 
 Change statically (`Log__Stdout__Level=debug` / `LOG_LEVEL` in Docker) or **on
 the fly**: edit the watched `appsettings.Local.json`
@@ -199,7 +203,7 @@ seconds. Tune `throttle.*`; `0` disables (restart to apply).
 ## Testing
 
 ```sh
-dotnet test                                # 144 xUnit, no infra
+dotnet test                                # 156 xUnit, no infra
 BASE=http://localhost:8090 ./scripts/e2e-v1.sh    # 26 contract checks, live
 BASE=http://localhost:8090 ./scripts/e2e-v12.sh   # 19 v1.2 checks, live
 ```
