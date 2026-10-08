@@ -223,7 +223,7 @@ if (settings.Throttle.MaxRequests > 0)
 app.UseMiddleware<ErrorHandlerMiddleware>();
 app.UseMiddleware<OriginGuardMiddleware>();
 
-// Static brand assets (logo.png, favicon.png). Exact files only —
+// Static brand assets (logo.svg, logo.png, favicon.png). Exact files only —
 // missing paths fall through to controllers and keep the JSON 404 contract.
 app.UseStaticFiles();
 

@@ -201,25 +201,29 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Keepmark API</title>
+        <link rel="icon" href="favicon.ico">
         <style>
-          body { font-family: system-ui, sans-serif; background: #14171c; color: #e8eaed;
-                 display: flex; justify-content: center; padding: 4rem 1rem; margin: 0; }
+          body { font-family: system-ui, sans-serif; color: #e8eaed; margin: 0; min-height: 100vh;
+                 background: radial-gradient(ellipse at top, #2c4596 0%, #1a2a5e 45%, #0e1630 100%);
+                 display: flex; justify-content: center; padding: 4rem 1rem; box-sizing: border-box; }
           main { max-width: 34rem; text-align: center; }
-          img { width: 96px; height: auto; background: #fff; border-radius: 24px; padding: 12px; }
-          h1 { font-size: 1.6rem; margin: 1rem 0 0.25rem; }
-          .version { color: #9aa0a6; margin-bottom: 1.5rem; }
+          .logo { width: 220px; max-width: 60vw; height: auto; display: block; margin: 0 auto;
+                  filter: drop-shadow(0 12px 32px rgba(0, 0, 0, 0.35)); }
+          h1 { font-size: 1.15rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+               color: #b8c4e6; margin: 1.75rem 0 0.25rem; }
+          .version { color: #9aa8cc; margin-bottom: 1.5rem; }
           .status { display: inline-block; padding: 0.3rem 0.9rem; border-radius: 999px;
-                    background: #333; font-size: 0.9rem; }
+                    background: rgba(255, 255, 255, 0.12); font-size: 0.9rem; }
           .status.online { background: #1d4620; } .status.warn { background: #5c3d00; }
           .status.offline { background: #5c1a1a; }
-          footer { margin-top: 2.5rem; font-size: 0.8rem; color: #9aa0a6; }
-          a { color: #8ab4f8; } code { background: #24282f; padding: 0.1rem 0.4rem; border-radius: 4px; }
+          footer { margin-top: 2.5rem; font-size: 0.8rem; color: #9aa8cc; }
+          a { color: #a9c4ff; } code { background: rgba(0, 0, 0, 0.28); padding: 0.1rem 0.4rem; border-radius: 4px; }
         </style>
         </head>
         <body>
         <main>
-          <img src="logo.png" alt="Keepmark logo">
-          <h1>Keepmark API</h1>
+          <img class="logo" src="logo.svg" alt="Keepmark">
+          <h1>Sync API</h1>
           <div class="version">v{version} — drop-in service for Keepmark clients</div>
           <div><span class="status" id="status">checking…</span></div>
           <p>Service contract (JSON <code>{code,message}</code> on errors):</p>
