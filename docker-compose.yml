@@ -47,6 +47,8 @@ services:
       Db__AuthSource: admin
       Server__Port: "8080"
       Status__Message: "Welcome to my Keepmark service!"
+      # Per-IP new syncs per UTC day (0 = disabled). Raise for QA/test rigs.
+      DailyNewSyncsLimit: ${DAILY_NEW_SYNCS_LIMIT:-3}
       Log__Stdout__Level: ${LOG_LEVEL:-info}
       Log__File__Path: /app/logs/api.log
       XBROWSERSYNC_DB_USER: ${XBROWSERSYNC_DB_USER}
