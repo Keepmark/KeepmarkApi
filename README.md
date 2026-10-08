@@ -2,7 +2,7 @@
 
 ASP.NET Core port of [`../api`](../api) (Node + Express + Mongoose), extended with
 an opt-in **v1.2** contract. Same Mongo layout and byte-identical v1.1 shapes —
-existing clients (`../app`, `../Keepmark`, `../KeepmarkApp`, official clients)
+existing clients (`../app`, `../KeepmarkMobile`, `../KeepmarkApp`, official clients)
 work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
 
 ## Status
@@ -33,7 +33,7 @@ work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
   - `Models/` — `BookmarkDocument` (`_id` = BSON Binary subtype 4, 16 RFC 4122
     bytes — never `Guid`), `NewSyncLogDocument`.
   - `Logging/` — `LogLevelWatcher` (on-the-fly level switch, no restart).
-  - `wwwroot/` — `logo.png`, `favicon.png` (from `../Keepmark/brand`).
+  - `wwwroot/` — `logo.png`, `favicon.png` (from `../KeepmarkMobile/brand`).
 - `src/KeepmarkApi.Core` (net10.0, runtime-free — no ASP.NET Core reference):
   `Config` (settings + versions), `Errors` (+ `ErrorMap`), `Uuid/SyncId`,
   `Routing/ApiVersioning`, `Text/HtmlSanitizer`, `Time/SyncTime`, `Stores`
