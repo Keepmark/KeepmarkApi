@@ -54,3 +54,6 @@ src/KeepmarkApi/appsettings.Local.json
 logs/
 backups/
 mongo-data/
+
+## Local agent settings
+.claude/
