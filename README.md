@@ -275,9 +275,13 @@ Verified compat matrix:
 
 ## License
 
-Proprietary — © 2026 Yari Melzani, all rights reserved. See `LICENSE.md`.
-Running the service requires written permission from the copyright holder.
+Copyright (C) 2026 Yari Melzani. Free software: you can redistribute it
+and/or modify it under the terms of the **GNU Affero General Public License,
+version 3 only** (AGPL-3.0-only) — see `LICENSE.md`. Distributed without any
+warranty. If you run a modified version as a network service, you must offer
+its source code to the users of that service (AGPL §13).
+
 Independent implementation, written from scratch; compatible with the
 xBrowserSync protocol. Not affiliated with or endorsed by xBrowserSync.
 
-Project home (releases, issues, documentation): <https://github.com/Keepmark>.
+Project home (source, releases, issues, documentation): <https://github.com/Keepmark>.

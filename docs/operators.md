@@ -27,8 +27,8 @@ exactly as before — no migration on their side, ever.
 **Security posture.** Same zero-knowledge design (ciphertext only, capability-URL
 IDs), plus: security headers + `no-store` by default, per-IP throttling with
 `Retry-After`, origin allow-list, proxied deployments via `X-Forwarded-For`
-only when you say so. Small codebase (~2k LOC of logic, 156 unit tests, live
-contract scripts).
+only when you say so. Open source (AGPL-3.0) and small enough to audit in an afternoon (~2k LOC of
+logic, 156 unit tests, live contract scripts).
 
 ## Migration in 10 minutes (zero user impact)
 
@@ -76,7 +76,8 @@ format (UUID binary subtype 4) and the settings keys are the same.
 - **Resource usage?** The API idles at tens of MB; Mongo dominates as before.
   Your `maxSyncs × maxSyncSize` budget math is unchanged.
 - **Can I keep my domain/message/location?** Yes — all surfaced in `/info` as before.
-- **License?** Proprietary (© 2026 Yari Melzani, see `LICENSE.md`): running
-  KeepmarkApi needs written permission — ask via <https://github.com/Keepmark>.
+- **License?** AGPL-3.0-only (© 2026 Yari Melzani, see `LICENSE.md`): free to
+  run, including public and commercial services. Running it unmodified needs
+  nothing; if you modify it, offer your modified source to your users.
   Independent alternative compatible with xBrowserSync, not affiliated with
   or endorsed by xBrowserSync.

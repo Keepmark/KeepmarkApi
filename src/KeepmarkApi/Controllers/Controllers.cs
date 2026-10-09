@@ -239,7 +239,8 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
           <footer>
             Keepmark Server — independent alternative compatible with the
             <a href="https://github.com/xbrowsersync/api">xBrowserSync API</a> v{version}.
-            © 2026 Yari Melzani, all rights reserved. Not affiliated with or endorsed by xBrowserSync.
+            © 2026 Yari Melzani, free software under the AGPL-3.0
+            (<a href="https://github.com/Keepmark">source code</a>). Not affiliated with or endorsed by xBrowserSync.
             Clients never send plaintext: bookmarks stay encrypted end-to-end.<br>
             Service operator? Drop-in replacement, 10-minute migration, zero user impact.
           </footer>
