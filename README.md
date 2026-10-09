@@ -91,9 +91,9 @@ Project home: <https://github.com/Keepmark>.
   for code review.
 - [Contributing](CONTRIBUTING.md).
 
-## Contact
+## Feedback
 
-Questions, feedback, security reports: <keepmark@proton.me>.
+Questions, bug reports and ideas: [open an issue](../../issues).
 
 ## License
 
