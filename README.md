@@ -281,6 +281,9 @@ version 3 only** (AGPL-3.0-only) — see `LICENSE.md`. Distributed without any
 warranty. If you run a modified version as a network service, you must offer
 its source code to the users of that service (AGPL §13).
 
+Contributions require signing the [CLA](CLA.md) — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 Independent implementation, written from scratch; compatible with the
 xBrowserSync protocol. Not affiliated with or endorsed by xBrowserSync.
 
