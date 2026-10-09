@@ -1,11 +1,13 @@
 # CLAUDE.md — KeepmarkApi (.NET 10 sync service)
 
-Source of truth is `README.md` in this directory (layout, v1.1/v1.2 contracts,
+Source of truth is `docs/DEVELOPMENT.md` (layout, v1.1/v1.2 contracts,
 config table, Docker, ops, test matrix). Edit that file, not this one.
 Repo-wide layout is in `../AGENTS.md` (loaded via `../CLAUDE.md`). Operator
 guide: `docs/operators.md`; behavioral spec for review: `docs/verification-spec.md`.
 
-Quick reminders (details in README):
+`README.md` is the user-facing GitHub landing page (no build details there).
+
+Quick reminders (details in docs/DEVELOPMENT.md):
 
 - Own git repo (`KeepmarkApi/`); the parent dir is not a repo.
 - `dotnet test` needs no infra; live contract checks:
@@ -19,4 +21,4 @@ Quick reminders (details in README):
 - Bookmark `_id` is BSON Binary subtype 4 (16 bytes), never `Guid`.
 - No secrets in `appsettings.Local.json` (tracked placeholder); use `.env`.
 
-@README.md
+@docs/DEVELOPMENT.md

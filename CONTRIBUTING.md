@@ -29,5 +29,5 @@ If the check does not update, comment `recheck`. Signatures are stored in
 - `dotnet test` passes; for contract changes also run `scripts/e2e-v1.sh`
   and `scripts/e2e-v12.sh` against a live instance.
 - v1.1 response shapes are frozen; logic stays in `KeepmarkApi.Core`.
-- Read `README.md` for layout, contracts and rules.
+- Read `docs/DEVELOPMENT.md` for layout, contracts and rules.
 

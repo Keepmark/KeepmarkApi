@@ -55,7 +55,7 @@ services:
       XBROWSERSYNC_DB_PWD: ${XBROWSERSYNC_DB_PWD}
     volumes:
       # Hot-reloadable local overrides (log level, messages...). Edit on the host,
-      # changes apply within seconds, no restart. See README "Verbosity".
+      # changes apply within seconds, no restart. See docs/DEVELOPMENT.md "Logging & verbosity".
       # Only put Log/Status sections here — full keys live in appsettings.json.
       - ./appsettings.Local.json:/app/appsettings.Local.json:ro
       # File-sink logs (log.file settings). Named volume: home-dir encryption
