@@ -224,7 +224,7 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
         <main>
           <img class="logo" src="logo.svg" alt="Keepmark">
           <h1>Sync API</h1>
-          <div class="version">v{version} — drop-in service for Keepmark clients</div>
+          <div class="version">v{version} — xBrowserSync-compatible sync service for Keepmark and xBrowserSync clients</div>
           <div><span class="status" id="status">checking…</span></div>
           <p>Service contract (JSON <code>{code,message}</code> on errors):</p>
           <p><code>GET <a href="info">info</a></code> ·
@@ -237,9 +237,9 @@ public sealed class RootController(IWebHostEnvironment env) : ControllerBase
              <code>HEAD bookmarks/:id</code> + <code>If-None-Match</code> → <code>304</code>,
              <code>DELETE bookmarks/:id</code></p>
           <footer>
-            Keepmark API (.NET 10) — independent, interoperable reimplementation of the
-            <a href="https://github.com/xbrowsersync/api">xBrowserSync API</a> v{version}
-            (GPL-3.0). Not affiliated with or endorsed by xBrowserSync.
+            Keepmark Server — independent alternative compatible with the
+            <a href="https://github.com/xbrowsersync/api">xBrowserSync API</a> v{version}.
+            © 2026 Yari Melzani, all rights reserved. Not affiliated with or endorsed by xBrowserSync.
             Clients never send plaintext: bookmarks stay encrypted end-to-end.<br>
             Service operator? Drop-in replacement, 10-minute migration, zero user impact.
           </footer>

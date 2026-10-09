@@ -1,9 +1,40 @@
-# KeepmarkApi — .NET 10 sync service (xBrowserSync-compatible)
+# Keepmark Server (KeepmarkApi)
 
-ASP.NET Core port of [`../api`](../api) (Node + Express + Mongoose), extended with
-an opt-in **v1.2** contract. Same Mongo layout and byte-identical v1.1 shapes —
-existing clients (`../app`, `../KeepmarkMobile`, `../KeepmarkApp`, official clients)
-work unchanged. Independent reimplementation, not affiliated with xBrowserSync.
+Keepmark is private, end-to-end encrypted bookmark sync: an **independent
+alternative compatible with xBrowserSync**. It works with any xBrowserSync
+service (official, self-hosted or community) and with the official
+xBrowserSync apps: syncs created with Keepmark open there, and vice versa.
+Keepmark is not affiliated with or endorsed by xBrowserSync.
+
+The Keepmark family:
+
+- **Keepmark for browsers** — Firefox and Chromium-based browsers (`KeepmarkApp`).
+- **Keepmark for Android** — Android 10+ app (`KeepmarkMobile`).
+- **Keepmark Server** — drop-in xBrowserSync-compatible sync service with
+  opt-in extended features (`KeepmarkApi`).
+
+This repo is the sync service: ASP.NET Core (.NET 10) + MongoDB,
+wire-compatible with the reference Node service in [`../api`](../api) and
+extended with an opt-in **v1.2** contract. Existing clients (official
+xBrowserSync apps, `../app`, Keepmark for browsers and Android) work unchanged.
+
+## Features
+
+- **Drop-in replacement** for the xBrowserSync API (Node) v1.1.13: same
+  endpoints, error codes, Mongo layout and byte-identical v1.1 responses —
+  official clients and Keepmark clients work unchanged, no user migration.
+- **No silent overwrites**: atomic compare-and-swap on every conditional
+  write (concurrent same-base pushes → one `200` + one `409`).
+- **Opt-in v1.2 contract** (`Accept-Version: ^1.2.0`): revision metadata,
+  `HEAD` and conditional `GET` (`304`), `DELETE`, advertised `capabilities`.
+- **Zero-knowledge**: stores ciphertext only; sync IDs truncated in logs,
+  bodies never logged.
+- **Operations**: Docker Compose (API + MongoDB + backups), healthchecks,
+  per-IP throttling with `Retry-After`, daily new-sync quota, origin
+  allow-list, rotating file logs with on-the-fly verbosity, landing page
+  with live status.
+- English-only service messages (clients localize their own UI).
+
 
 ## Status
 
@@ -241,3 +272,12 @@ Verified compat matrix:
 - `Location` validated via `RegionInfo`, not `country-list`.
 - v1 `PUT` has no conflict detection (upstream quirk, frozen).
 - No per-sync quota accounting beyond the global body cap.
+
+## License
+
+Proprietary — © 2026 Yari Melzani, all rights reserved. See `LICENSE.md`.
+Running the service requires written permission from the copyright holder.
+Independent implementation, written from scratch; compatible with the
+xBrowserSync protocol. Not affiliated with or endorsed by xBrowserSync.
+
+Project home (releases, issues, documentation): <https://github.com/Keepmark>.
