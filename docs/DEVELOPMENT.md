@@ -35,7 +35,7 @@ The reference Node service lives in `../api` of the development checkout.
   - `Models/` — `BookmarkDocument` (`_id` = BSON Binary subtype 4, 16 RFC 4122
     bytes — never `Guid`), `NewSyncLogDocument`.
   - `Logging/` — `LogLevelWatcher` (on-the-fly level switch, no restart).
-  - `wwwroot/` — `logo.svg` (stacked white logo, landing page), `logo.png`,
+  - `wwwroot/` — `logo.svg` (stacked logo, 5D tile + white wordmark, landing page), `logo.png`,
     `favicon.png` (from `../KeepmarkMobile/brand`).
 - `src/KeepmarkApi.Core` (net10.0, runtime-free — no ASP.NET Core reference):
   `Config` (settings + versions), `Errors` (+ `ErrorMap`), `Uuid/SyncId`,
