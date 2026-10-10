@@ -119,14 +119,17 @@ public static class ExtendedResponses
     public static UpdateBookmarksResponse2 Updated(StoredBookmark doc)
         => new() { LastUpdated = doc.LastUpdated, Meta = MetaOf(doc) };
 
-    public static SyncMetadata MetaOf(StoredBookmark doc)
-        => new()
+    public static SyncMetadata MetaOf(StoredBookmark stored)
+    {
+        var doc = BookmarkMeta.Effective(stored);
+        return new()
         {
             Revision = doc.Revision,
             Hash = doc.Hash,
             Size = doc.Size,
             CreatedAt = doc.CreatedAt,
         };
+    }
 }
 
 public sealed class CreateBookmarksResponse2 : CreateBookmarksResponse

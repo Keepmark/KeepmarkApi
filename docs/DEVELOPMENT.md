@@ -10,12 +10,12 @@ The reference Node service lives in `../api` of the development checkout.
 ## Status
 
 - Contract: v1.1.x frozen (Node parity) + v1.2 extended (opt-in, see below).
-- Tests: 185 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
+- Tests: 193 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
   `scripts/e2e-v12.sh` (20 checks) against live Mongo, all green.
 - Verified compat matrix: new⇄old clients/servers, concurrent-push chaos —
   see [Testing](#testing).
 - **Run a public service?** Start with [`operators.md`](operators.md):
-  why switch, 10-minute zero-impact migration, FAQ.
+  why switch, FAQ. Moving from Node: [`migration.md`](migration.md).
 
 ## Layout
 
@@ -68,7 +68,12 @@ Error shape is always `{code, message}` with the Node status codes.
 `meta = {revision, hash, size, createdAt}`. `revision` starts at 1 and bumps on
 **every** write under any contract; `hash` = SHA-256 of the ciphertext (opaque
 to the server); old syncs report `revision: 0` with no hash until their next
-write (no backfill, by design). The server reports `1.2.0` in `/info.version`;
+write (no backfill, by design). Metadata is valid only while `metaStamp`
+(the `lastUpdated` of this server's last write) equals `lastUpdated`: a write
+by another server on the same database (Node during migration or rollback)
+moves `lastUpdated` only, so that sync is served as `revision: 0`, no hash,
+until this server writes it again (`BookmarkMeta`). Startup stamps syncs
+written before `metaStamp` existed (hash checked against the content). The server reports `1.2.0` in `/info.version`;
 legacy clients only enforce the minimum (`1.1.9`), so nothing breaks.
 
 ### Sync model and guarantees
@@ -85,6 +90,9 @@ legacy clients only enforce the minimum (`1.1.9`), so nothing breaks.
   `SyncExpiryDays` TTL). Missing sync →
   `401 SyncNotFoundException` (Node convention, kept). Malformed ID → `401
   InvalidSyncIdException`.
+- `baseRevision: 0` matches any legacy sync (no `revision` field, as written by
+  Node, or stale metadata); `baseRevision: N` matches only a current revision N.
+  Both are a single atomic filter.
 - The server never sees plaintext and cannot merge: conflict resolution is
   always client-side (pull, merge locally, push with fresh base).
 
@@ -236,7 +244,7 @@ seconds. Tune `throttle.*`; `0` disables (restart to apply).
 ## Testing
 
 ```sh
-dotnet test                                # 185 xUnit, no infra
+dotnet test                                # 193 xUnit, no infra
 BASE=http://localhost:8090 ./scripts/e2e-v1.sh    # 26 contract checks, live
 BASE=http://localhost:8090 ./scripts/e2e-v12.sh   # 20 v1.2 checks, live
 ```

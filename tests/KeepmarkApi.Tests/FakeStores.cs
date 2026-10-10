@@ -91,7 +91,7 @@ public sealed class FakeBookmarkStore : IBookmarkStore
             return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, null));
         }
 
-        if (d.Revision != baseRevision)
+        if (!KeepmarkApi.Stores.BookmarkMeta.MatchesBaseRevision(d, baseRevision))
         {
             return Task.FromResult<(StoredBookmark?, StoredBookmark?)>((null, d));
         }

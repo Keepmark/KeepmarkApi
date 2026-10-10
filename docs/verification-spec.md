@@ -285,7 +285,7 @@ except `304` (§6.4) and `204` (favicon missing).
 
 - **REQ-P1 — Collections.** `bookmarks` and `newsynclogs`, same names as Node.
   `BookmarkDocument` fields: `_id, bookmarks, lastAccessed, lastUpdated, version,
-  revision (default 0), hash, size (default 0), createdAt`. Extra stored fields
+  revision (default 0), hash, size (default 0), createdAt, metaStamp`. Extra stored fields
   tolerated (`BsonIgnoreExtraElements`).
 - **REQ-P2 — `_id`.** BSON Binary subtype `0x04` holding the 16 RFC 4122 bytes;
   all by-ID filters pin the subtype. Declared as `BsonBinaryData`, never `Guid`.
@@ -306,6 +306,15 @@ except `304` (§6.4) and `204` (favicon missing).
   are intentionally read-then-write (Node parity: last-writer-wins, §REQ-U1/U2).
   Concurrent same-base pushes MUST resolve to exactly one `200` + N−1 `409`s
   (Node returns `[200,200]` — that upstream race is the bug being fixed, §11.3).
+- **REQ-P5b — Shared database.** Every write sets `metaStamp = lastUpdated`.
+  Metadata is current iff `revision > 0 && metaStamp == lastUpdated`; otherwise
+  responses, `HEAD` and the conditional-GET precheck use legacy metadata
+  (`revision 0`, no hash, size 0). Revision CAS: base `0` matches a non-current
+  sync (incl. a missing `revision` field — Node syncs), base `N` requires a
+  current revision `N` (`$expr` on `lastUpdated`/`metaStamp`, single
+  `findOneAndUpdate`). Writes `$inc` the stored revision, so it stays monotonic
+  past a foreign write. Startup stamps `revision > 0` syncs lacking
+  `metaStamp`: `lastUpdated` if `hash` matches the content, else the epoch.
 - **REQ-P6 — Touch.** Read-touch sets ONLY `lastAccessed` (single-field update,
   returns post-touch doc). Metadata reads (`GetMetadataAsync`) and CAS losers
   MUST NOT touch.
@@ -446,7 +455,7 @@ tracked `{}` placeholder `appsettings.Local.json`.
 
 ## 11. Test evidence (what exists, what must stay green)
 
-- **REQ-T1 — Unit.** `dotnet test` — 185 xUnit, no infrastructure. Covers: version
+- **REQ-T1 — Unit.** `dotnet test` — 193 xUnit, no infrastructure. Covers: version
   dispatch matrix (incl. `1.1.2 → v2`, `v1.2.0 → v2`), request coercion
   (`42 → "42"`, objects → absent), error map, timestamp truncation/parsing
   (`.87 == .870`), SyncId round-trip/rejection, CAS win/lose/missing via fakes
@@ -454,7 +463,9 @@ tracked `{}` placeholder `appsettings.Local.json`.
   legacy shape freeze (no `meta`/`capabilities` keys), levels/redaction, file
   rotation determinism (injected clock), retention, sync-expiry index decisions
   (create/keep/recreate/drop matrix, key matching, day bounds, no touch on
-  metadata reads). The index apply step itself is live-only (Mongo).
+  metadata reads), shared-database metadata (foreign write → legacy meta,
+  stale revision rejected, base 0 on Node syncs, backfill stamp). The index
+  apply step and the BSON CAS filter are live-only (Mongo).
 - **REQ-T2 — Live v1 parity.** `BASE=… ./scripts/e2e-v1.sh` — 26 curl checks
   (info, create/get/put/lastUpdated/version, stale-put 409, bad-ID 401, guards,
   unknown-route 404 shape, v1-missing-put `200 {}`, malformed-JSON 500). Requires
@@ -550,7 +561,7 @@ For each item: state PASS/FAIL with file:line + reproduction (command or test na
 
 ```sh
 cd KeepmarkApi
-dotnet test                                   # unit, no infra (expect 185 pass)
+dotnet test                                   # unit, no infra (expect 193 pass)
 cp .env.example .env                          # set real passwords, chmod 600 .env
 docker compose up --build -d                  # API :8080 in-container
 BASE=http://localhost:<API_PORT> ./scripts/e2e-v1.sh    # expect 26/26

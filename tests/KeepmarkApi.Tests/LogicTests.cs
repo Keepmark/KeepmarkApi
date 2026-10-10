@@ -1,6 +1,7 @@
 using KeepmarkApi.Config;
 using KeepmarkApi.Errors;
 using KeepmarkApi.Logic;
+using KeepmarkApi.Stores;
 using KeepmarkApi.Time;
 using KeepmarkApi.Uuid;
 
@@ -598,5 +599,91 @@ public sealed class LogicTests
 
         await logic.GetLastUpdatedAsync(id, Now);
         Assert.Equal(Now, (await store.FindByIdAsync(SyncId.Parse(id), default))!.LastAccessed);
+    }
+
+    // ---- shared database with another server (migration / rollback) ----
+
+    private static readonly DateTime Later = new(2026, 9, 26, 9, 0, 0, DateTimeKind.Utc);
+
+    private static StoredBookmark Doc(long rev, string? hash, DateTime? stamp, string blob = "blob")
+        => new(SyncId.New(), blob, Earlier, Earlier, "1.8.0", rev, hash, 4, Earlier, stamp);
+
+    public static TheoryData<string, StoredBookmark, bool> MetaCases() => new()
+    {
+        { "node sync (no revision)", Doc(0, null, null), false },
+        { "written here", Doc(3, "h", Earlier), true },
+        { "written elsewhere after", Doc(3, "h", Earlier) with { LastUpdated = Later }, false },
+        { "pre-stamp sync", Doc(3, "h", null), false },
+    };
+
+    [Theory]
+    [MemberData(nameof(MetaCases))]
+    public void SharedDb_MetaIsCurrentOnlyWhenStampMatches(string label, StoredBookmark doc, bool current)
+    {
+        Assert.True(current == BookmarkMeta.IsCurrent(doc), label);
+        var eff = BookmarkMeta.Effective(doc);
+        Assert.Equal(current ? doc.Revision : 0, eff.Revision);
+        Assert.Equal(current ? doc.Hash : null, eff.Hash);
+    }
+
+    [Fact]
+    public void SharedDb_BaseRevisionMatching()
+    {
+        var current = Doc(3, "h", Earlier);
+        var foreign = current with { LastUpdated = Later };
+        var node = Doc(0, null, null);
+        Assert.True(BookmarkMeta.MatchesBaseRevision(current, 3));
+        Assert.False(BookmarkMeta.MatchesBaseRevision(current, 0));
+        Assert.False(BookmarkMeta.MatchesBaseRevision(current, 2));
+        Assert.False(BookmarkMeta.MatchesBaseRevision(foreign, 3)); // stale revision never wins
+        Assert.True(BookmarkMeta.MatchesBaseRevision(foreign, 0));
+        Assert.True(BookmarkMeta.MatchesBaseRevision(node, 0));
+        Assert.False(BookmarkMeta.MatchesBaseRevision(node, 1));
+    }
+
+    [Fact]
+    public void SharedDb_BackfillStamp()
+    {
+        var ok = Doc(2, KeepmarkApi.Content.BlobMeta.HashOf("blob"), null);
+        Assert.Equal(ok.LastUpdated, BookmarkMeta.BackfillStamp(ok));
+        Assert.Equal(DateTime.UnixEpoch, BookmarkMeta.BackfillStamp(ok with { Bookmarks = "changed" }));
+        Assert.Equal(DateTime.UnixEpoch, BookmarkMeta.BackfillStamp(Doc(2, null, null)));
+        // Empty v2 create: hash of "" matches a null blob.
+        Assert.Equal(Earlier, BookmarkMeta.BackfillStamp(Doc(1, KeepmarkApi.Content.BlobMeta.HashOf(null), null, blob: null!)));
+    }
+
+    [Fact]
+    public async Task SharedDb_NodeSyncAcceptsBaseRevisionZero()
+    {
+        var (logic, store, _) = Make(Settings());
+        var id = SeedLegacy(store);
+        var res = await logic.UpdateV2Async(id, "nb", null, null, Now, baseRevision: 0);
+        Assert.Equal(1, res.Meta!.Revision);
+        Assert.Equal(KeepmarkApi.Content.BlobMeta.HashOf("nb"), res.Meta.Hash);
+    }
+
+    [Fact]
+    public async Task SharedDb_ForeignWriteServesLegacyMetaAndRejectsStaleRevision()
+    {
+        var (logic, store, _) = Make(Settings());
+        var created = await logic.CreateV1Async("mine", "1.2.3.4", Earlier);
+        var key = Convert.ToHexString(SyncId.Parse(created.Id!));
+        // Node writes the same sync: content and lastUpdated move, metadata does not.
+        store.Docs[key] = store.Docs[key] with { Bookmarks = "node", LastUpdated = Later };
+
+        var got = await logic.GetAsync(created.Id!, Now);
+        Assert.Equal("node", got.Bookmarks);
+        Assert.Equal(0, got.Meta!.Revision);
+        Assert.Null(got.Meta.Hash); // no stale ETag, so no wrong 304
+        Assert.Null((await logic.GetMetadataAsync(created.Id!)).Hash);
+
+        await Assert.ThrowsAsync<SyncConflictException>(() =>
+            logic.UpdateV2Async(created.Id!, "overwrite", null, null, Now, baseRevision: 1));
+        Assert.Equal("node", store.Docs[key].Bookmarks);
+
+        var res = await logic.UpdateV2Async(created.Id!, "merged", null, null, Now, baseRevision: 0);
+        Assert.Equal(2, res.Meta!.Revision); // monotonic past the stale value
+        Assert.Equal(KeepmarkApi.Content.BlobMeta.HashOf("merged"), res.Meta.Hash);
+        Assert.True(BookmarkMeta.IsCurrent(store.Docs[key]));
     }
 }

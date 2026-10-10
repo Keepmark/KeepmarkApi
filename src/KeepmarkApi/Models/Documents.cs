@@ -40,6 +40,11 @@ public sealed class BookmarkDocument
     [BsonElement("createdAt")]
     [BsonIgnoreIfNull]
     public DateTime? CreatedAt { get; set; }
+
+    // lastUpdated of this server's last write; differs when another server wrote since.
+    [BsonElement("metaStamp")]
+    [BsonIgnoreIfNull]
+    public DateTime? MetaStamp { get; set; }
 }
 
 /// <summary>Mirrors api/src/models/newSyncLogs.model.ts (collection newsynclogs).</summary>

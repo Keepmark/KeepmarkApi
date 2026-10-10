@@ -241,6 +241,13 @@ try
 {
     await app.Services.GetRequiredService<MongoContext>()
         .EnsureIndexesAsync(settings.SyncExpiryDays, app.Logger, app.Lifetime.ApplicationStopping).ConfigureAwait(false);
+    var (current, stale) = await new MongoBookmarkStore(app.Services.GetRequiredService<MongoContext>())
+        .BackfillMetaStampsAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
+    if (current + stale > 0)
+    {
+        app.Logger.LogInformation("v1.2 metadata stamped: {Current} current, {Stale} changed by another server (served as legacy until next write)",
+            current, stale);
+    }
 }
 catch (Exception ex)
 {

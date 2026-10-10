@@ -22,7 +22,7 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
 
     private static StoredBookmark ToRecord(BookmarkDocument d)
         => new(d.Id.Bytes, d.Bookmarks, d.LastAccessed, d.LastUpdated, d.Version,
-            d.Revision, d.Hash, d.Size, d.CreatedAt);
+            d.Revision, d.Hash, d.Size, d.CreatedAt, d.MetaStamp);
 
     private static BookmarkDocument ToDocument(StoredBookmark doc)
         => new()
@@ -36,6 +36,7 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
             Hash = doc.Hash,
             Size = doc.Size,
             CreatedAt = doc.CreatedAt,
+            MetaStamp = doc.MetaStamp,
         };
 
     /// <summary>v1.2 write payload: data + revision bump + refreshed hash/size.
@@ -48,7 +49,8 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
             .Set(x => x.LastUpdated, now)
             .Inc(x => x.Revision, 1)
             .Set(x => x.Hash, BlobMeta.HashOf(bookmarks))
-            .Set(x => x.Size, BlobMeta.SizeOf(bookmarks));
+            .Set(x => x.Size, BlobMeta.SizeOf(bookmarks))
+            .Set(x => x.MetaStamp, now);
         if (!string.IsNullOrEmpty(version))
         {
             update = update.Set(x => x.Version, version);
@@ -151,12 +153,59 @@ public sealed class MongoBookmarkStore(MongoContext mongo, ILogger<MongoBookmark
                 ById(id), Builders<BookmarkDocument>.Filter.Eq(x => x.LastUpdated, baseTime)),
             id, bookmarks, version, now, "cas", ct);
 
+    /// <summary>BSON mirror of BookmarkMeta.MatchesBaseRevision. "Current" =
+    /// revision &gt; 0 and metaStamp == lastUpdated; a missing revision (Node
+    /// sync) or metaStamp counts as legacy, so base 0 matches it.</summary>
+    private static FilterDefinition<BookmarkDocument> BaseRevisionFilter(long baseRevision)
+    {
+        var stampCurrent = new BsonDocument("$eq", new BsonArray { "$lastUpdated", "$metaStamp" });
+        if (baseRevision == 0)
+        {
+            return new BsonDocument("$expr", new BsonDocument("$or", new BsonArray
+            {
+                new BsonDocument("$lte", new BsonArray { new BsonDocument("$ifNull", new BsonArray { "$revision", 0 }), 0 }),
+                new BsonDocument("$not", new BsonArray { stampCurrent }),
+            }));
+        }
+
+        return Builders<BookmarkDocument>.Filter.And(
+            Builders<BookmarkDocument>.Filter.Eq(x => x.Revision, baseRevision),
+            new BsonDocument("$expr", stampCurrent));
+    }
+
     public Task<(StoredBookmark? Updated, StoredBookmark? Current)> CompareAndSwapByRevisionAsync(
         byte[] id, string bookmarks, string? version, long baseRevision, DateTime now, CancellationToken ct)
         => CasAsync(
-            Builders<BookmarkDocument>.Filter.And(
-                ById(id), Builders<BookmarkDocument>.Filter.Eq(x => x.Revision, baseRevision)),
+            Builders<BookmarkDocument>.Filter.And(ById(id), BaseRevisionFilter(baseRevision)),
             id, bookmarks, version, now, "casRev", ct);
+
+    /// <summary>Startup, once per sync: stamps syncs written before metaStamp
+    /// existed (revision &gt; 0, no stamp) — see BookmarkMeta.BackfillStamp.
+    /// Filtered on the lastUpdated just read, so a concurrent write wins.</summary>
+    public async Task<(long Current, long Stale)> BackfillMetaStampsAsync(CancellationToken ct)
+    {
+        var f = Builders<BookmarkDocument>.Filter;
+        var pending = f.And(f.Gt(x => x.Revision, 0), f.Exists(x => x.MetaStamp, false));
+        long current = 0, stale = 0;
+        using var cursor = await mongo.Bookmarks.FindAsync(pending, cancellationToken: ct).ConfigureAwait(false);
+        while (await cursor.MoveNextAsync(ct).ConfigureAwait(false))
+        {
+            foreach (var doc in cursor.Current)
+            {
+                var stamp = BookmarkMeta.BackfillStamp(ToRecord(doc));
+                var res = await mongo.Bookmarks.UpdateOneAsync(
+                    f.And(f.Eq(x => x.Id, doc.Id), f.Eq(x => x.LastUpdated, doc.LastUpdated), f.Exists(x => x.MetaStamp, false)),
+                    Builders<BookmarkDocument>.Update.Set(x => x.MetaStamp, stamp),
+                    cancellationToken: ct).ConfigureAwait(false);
+                if (res.ModifiedCount > 0)
+                {
+                    if (stamp == doc.LastUpdated) { current++; } else { stale++; }
+                }
+            }
+        }
+
+        return (current, stale);
+    }
 
     public async Task<bool> DeleteAsync(byte[] id, CancellationToken ct)
     {

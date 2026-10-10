@@ -96,7 +96,7 @@ public sealed class BookmarksLogic(
         now = SyncTime.TruncateToMs(now);
         await GuardNewSyncAsync(ip, ct).ConfigureAwait(false);
         var doc = new StoredBookmark(SyncId.New(), bookmarks, now, now, null,
-            Revision: 1, Hash: BlobMeta.HashOf(bookmarks), Size: BlobMeta.SizeOf(bookmarks), CreatedAt: now);
+            Revision: 1, Hash: BlobMeta.HashOf(bookmarks), Size: BlobMeta.SizeOf(bookmarks), CreatedAt: now, MetaStamp: now);
         await store.InsertAsync(doc, ct).ConfigureAwait(false);
         await LogNewSyncAsync(ip, now, ct).ConfigureAwait(false);
         _log.LogInformation("New bookmarks sync created id={Id}", LogSanitizer.SyncId(SyncId.ToString(doc.Id)));
@@ -109,7 +109,7 @@ public sealed class BookmarksLogic(
         now = SyncTime.TruncateToMs(now);
         await GuardNewSyncAsync(ip, ct).ConfigureAwait(false);
         var doc = new StoredBookmark(SyncId.New(), null, now, now, version,
-            Revision: 1, Hash: BlobMeta.HashOf(null), Size: 0, CreatedAt: now);
+            Revision: 1, Hash: BlobMeta.HashOf(null), Size: 0, CreatedAt: now, MetaStamp: now);
         await store.InsertAsync(doc, ct).ConfigureAwait(false);
         await LogNewSyncAsync(ip, now, ct).ConfigureAwait(false);
         _log.LogInformation("New bookmarks sync created id={Id} version={Version}",
@@ -134,13 +134,15 @@ public sealed class BookmarksLogic(
     }
 
     /// <summary>Metadata for HEAD / conditional GET. Read-only: no lastAccessed
-    /// touch, so pure metadata polling neither extends TTL nor costs a write.</summary>
+    /// touch, so pure metadata polling neither extends TTL nor costs a write.
+    /// Effective view: stale metadata reads as legacy (BookmarkMeta).</summary>
     public async Task<StoredBookmark> GetMetadataAsync(string id, CancellationToken ct = default)
     {
         var idBytes = SyncId.Parse(id);
         CheckServiceAvailable();
-        return await store.FindByIdAsync(idBytes, ct).ConfigureAwait(false)
+        var doc = await store.FindByIdAsync(idBytes, ct).ConfigureAwait(false)
             ?? throw new SyncNotFoundException();
+        return BookmarkMeta.Effective(doc);
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)

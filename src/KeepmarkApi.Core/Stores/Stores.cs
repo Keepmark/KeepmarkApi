@@ -10,7 +10,33 @@ public sealed record StoredBookmark(
     long Revision = 0,
     string? Hash = null,
     long Size = 0,
-    DateTime? CreatedAt = null);
+    DateTime? CreatedAt = null,
+    DateTime? MetaStamp = null);
+
+/// <summary>Validity of the v1.2 metadata. Every write by this server stamps
+/// metaStamp = lastUpdated; a write by another server sharing the database
+/// (Node xBrowserSync during a migration or rollback) moves lastUpdated but
+/// leaves revision/hash/metaStamp behind. Such syncs — and pre-1.2 ones — are
+/// served as legacy (revision 0, no hash) until this server writes them again,
+/// so stale hashes never answer 304 and stale revisions never win a CAS.</summary>
+public static class BookmarkMeta
+{
+    public static bool IsCurrent(StoredBookmark d) => d.Revision > 0 && d.MetaStamp == d.LastUpdated;
+
+    public static StoredBookmark Effective(StoredBookmark d)
+        => IsCurrent(d) ? d : d with { Revision = 0, Hash = null, Size = 0 };
+
+    /// <summary>Revision CAS predicate (MongoStores mirrors it as a filter):
+    /// base 0 matches any legacy sync, base N only a current revision N.</summary>
+    public static bool MatchesBaseRevision(StoredBookmark d, long baseRevision)
+        => baseRevision == 0 ? !IsCurrent(d) : IsCurrent(d) && d.Revision == baseRevision;
+
+    /// <summary>One-time stamp for syncs written by servers older than
+    /// metaStamp: their lastUpdated when the hash still matches the content
+    /// (metadata current), else the epoch (content changed elsewhere → legacy).</summary>
+    public static DateTime BackfillStamp(StoredBookmark d)
+        => d.Hash is not null && d.Hash == Content.BlobMeta.HashOf(d.Bookmarks) ? d.LastUpdated : DateTime.UnixEpoch;
+}
 
 /// <summary>Single definition of the write-payload rule (revision bump,
 /// refreshed hash/size, version preserved unless replaced). Used by logic
@@ -27,6 +53,7 @@ public static class BookmarkWrites
             Revision = current.Revision + 1,
             Hash = Content.BlobMeta.HashOf(bookmarks),
             Size = Content.BlobMeta.SizeOf(bookmarks),
+            MetaStamp = now,
         };
 }
 
