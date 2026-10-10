@@ -28,37 +28,17 @@ exactly as before — no migration on their side, ever.
 IDs), plus: security headers + `no-store` by default, per-IP throttling with
 `Retry-After`, origin allow-list, proxied deployments via `X-Forwarded-For`
 only when you say so. Open source (AGPL-3.0) and small enough to audit in an afternoon (~2k LOC of
-logic, 185 unit tests, live contract scripts).
+logic, 193 unit tests, live contract scripts).
 
 ## Migration in 10 minutes (zero user impact)
 
-No data migration. The collections (`bookmarks`, `newsynclogs`), the `_id`
-format (UUID binary subtype 4) and the settings keys are the same.
+No data migration: the collections (`bookmarks`, `newsynclogs`), the `_id`
+format (UUID binary subtype 4) and the settings keys are the same. Back up,
+stop Node, start KeepmarkApi on the same database and port; rollback is
+starting Node again.
 
-1. **Back up** your Mongo (`mongodump`), as always.
-2. **Start KeepmarkApi** with Docker Compose, pointed at a *copy* first:
-   ```sh
-   cp .env.example .env   # set passwords + API_PORT
-   docker compose up --build -d
-   ```
-   Either reuse your existing Mongo (`Db__Host`, credentials) or `mongorestore`
-   the dump into the bundled one.
-3. **Translate your `settings.json`** (keys are 1:1; only the file format
-   changes to `appsettings` / env):
-   | Node `settings.json` | KeepmarkApi |
-   |---|---|
-   | `server.port`, `server.host` | `Server__Port`, `Server__Host` |
-   | `db.*`, `XBROWSERSYNC_DB_*` | same names, same env vars |
-   | `maxSyncs`, `maxSyncSize`, `throttle.*` | same |
-   | manual `bookmarks.lastAccessed` TTL index | `SyncExpiryDays` (`21` keeps the 3-week index as-is; `0` drops it) |
-   | `status.message`, `status.online`, `location` | same (`Status__*`, `Location`) |
-   | `log.file.path`, `log.stdout.level` | `Log__File__Path`, `Log__Stdout__Level` (+ hot-reload) |
-4. **Smoke-test** against the copy: `scripts/e2e-v1.sh` (24 checks) plus one
-   real client pointed at the new host.
-5. **Cut over DNS.** If anything misbehaves, point DNS back — the data format
-   never changed, so rollback is instant.
-6. Old syncs show `revision: 0` until their next write; everything else works
-   from second one.
+**Step by step, with copy-paste commands, settings mapping and checks:
+[migration guide](migration.md).**
 
 > **Binding note:** Kestrel listens on `AnyIP:Port` — `Server__Host` is display
 > only, NOT a bind restriction. A reused `127.0.0.1` does not make you

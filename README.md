@@ -41,7 +41,7 @@ ciphertext only.
   truncated in every log line, and optional deletion of syncs left unused
   for N days (`SyncExpiryDays`).
 - **Small and auditable.** One runtime dependency (`MongoDB.Driver`), about
-  2k lines of logic, 185 unit tests plus live contract scripts.
+  2k lines of logic, 193 unit tests plus live contract scripts.
 
 ## What v1.2 adds
 
@@ -122,9 +122,21 @@ everything else applies at startup.
 
 ## Already running xBrowserSync?
 
-Switching takes about ten minutes with no data migration: the collections,
-the ID format and the settings keys are the same, and rollback is a DNS
-change. Read the [operator guide](docs/operators.md).
+Switching takes about ten minutes with no data conversion: Keepmark Server
+uses your xBrowserSync MongoDB database as it is, your users change nothing,
+and going back means starting Node again. In short:
+
+```sh
+docker build -t keepmark-server .
+sudo systemctl stop xbrowsersync
+docker run -d --name keepmark-server --restart unless-stopped --network host \
+  -e Db__Host=127.0.0.1 -e XBROWSERSYNC_DB_USER=xbrowsersyncdb \
+  -e XBROWSERSYNC_DB_PWD='your-db-password' -e Log__File__Enabled=false \
+  keepmark-server
+```
+
+Read the **[migration guide](docs/migration.md)** before switching: backup,
+settings mapping, the optional sync expiry, checks and rollback.
 
 ## The Keepmark family
 
@@ -138,7 +150,8 @@ Project home: <https://github.com/Keepmark>.
 
 ## Documentation
 
-- [Operator guide](docs/operators.md): why switch, migration, FAQ.
+- [Migration guide](docs/migration.md): move from xBrowserSync API, step by step.
+- [Operator guide](docs/operators.md): why switch, FAQ.
 - [Developer and operations guide](docs/DEVELOPMENT.md): layout, API
   contracts, configuration, Docker, logging, backups, testing, security notes.
 - [Verification spec](docs/verification-spec.md): behavioural requirements
