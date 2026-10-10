@@ -17,7 +17,7 @@ same database:
 ```sh
 mongodump --db xbrowsersync --out ~/xbs-backup-$(date +%F)
 
-git clone <this repository> keepmark-server && cd keepmark-server
+git clone https://github.com/Keepmark/KeepmarkApi.git keepmark-server && cd keepmark-server
 docker build -t keepmark-server .
 
 sudo systemctl stop xbrowsersync      # or however you run the Node service
@@ -74,7 +74,7 @@ Use this to retire the old MongoDB and run everything with Docker Compose
 (API + MongoDB 7 + backup script).
 
 ```sh
-git clone <this repository> keepmark-server && cd keepmark-server
+git clone https://github.com/Keepmark/KeepmarkApi.git keepmark-server && cd keepmark-server
 cp .env.example .env && chmod 600 .env   # set the four passwords
 
 sudo systemctl stop xbrowsersync         # no writes from now on
