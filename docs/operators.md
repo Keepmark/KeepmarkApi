@@ -20,7 +20,7 @@ exactly as before — no migration on their side, ever.
 | Silent overwrites | Concurrent same-base pushes both return `200` — one user's sync silently lost | Atomic compare-and-swap: loser gets `409`, data never silently lost |
 | Timestamps | String comparison of `lastUpdated` | Millisecond instants (`.87` == `.870`), writes truncated to BSON precision |
 | Observability | Bunyan to file/stdout | Leveled logs (console + rotating file), on-the-fly verbosity, redacted sync IDs, per-op timings |
-| Ops | Manual install, manual indexes | Docker Compose (API + Mongo + backups), auto-created indexes, healthchecks, `Retry-After` |
+| Ops | Manual install, manual indexes (incl. the optional 3-week expiry TTL) | Docker Compose (API + Mongo + backups), auto-created indexes, inactive-sync expiry as one setting (`SyncExpiryDays`), healthchecks, `Retry-After` |
 | Backups | DIY | `scripts/mongo-backup.sh` + cron, 7 rolling dumps |
 | Future | Frozen upstream | Opt-in v1.2 (revision metadata, conditional `304` pulls, `DELETE`) — legacy untouched |
 
@@ -28,7 +28,7 @@ exactly as before — no migration on their side, ever.
 IDs), plus: security headers + `no-store` by default, per-IP throttling with
 `Retry-After`, origin allow-list, proxied deployments via `X-Forwarded-For`
 only when you say so. Open source (AGPL-3.0) and small enough to audit in an afternoon (~2k LOC of
-logic, 156 unit tests, live contract scripts).
+logic, 182 unit tests, live contract scripts).
 
 ## Migration in 10 minutes (zero user impact)
 
@@ -50,6 +50,7 @@ format (UUID binary subtype 4) and the settings keys are the same.
    | `server.port`, `server.host` | `Server__Port`, `Server__Host` |
    | `db.*`, `XBROWSERSYNC_DB_*` | same names, same env vars |
    | `maxSyncs`, `maxSyncSize`, `throttle.*` | same |
+   | manual `bookmarks.lastAccessed` TTL index | `SyncExpiryDays` (`21` keeps the 3-week index as-is; `0` drops it) |
    | `status.message`, `status.online`, `location` | same (`Status__*`, `Location`) |
    | `log.file.path`, `log.stdout.level` | `Log__File__Path`, `Log__Stdout__Level` (+ hot-reload) |
 4. **Smoke-test** against the copy: `scripts/e2e-v1.sh` (24 checks) plus one
@@ -75,6 +76,10 @@ format (UUID binary subtype 4) and the settings keys are the same.
 - **Does it phone home?** No. No telemetry, no external calls. Logs stay on your disk.
 - **Resource usage?** The API idles at tens of MB; Mongo dominates as before.
   Your `maxSyncs × maxSyncSize` budget math is unchanged.
+- **I created the 3-week `lastAccessed` TTL index by hand. What now?** Set
+  `SyncExpiryDays=21` and KeepmarkApi adopts it unchanged. Any other value
+  replaces it at startup; `0` (the default) drops it, so syncs stop expiring.
+  Details: [Inactive sync expiry](DEVELOPMENT.md#inactive-sync-expiry).
 - **Can I keep my domain/message/location?** Yes — all surfaced in `/info` as before.
 - **License?** AGPL-3.0-only (© 2026 Yari Melzani, see `LICENSE.md`): free to
   run, including public and commercial services. Running it unmodified needs

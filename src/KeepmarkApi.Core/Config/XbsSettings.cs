@@ -14,6 +14,10 @@ public sealed class XbsSettings
     public long MaxSyncSize { get; set; } = 1048576;
     public ServerSettings Server { get; set; } = new();
     public StatusSettings Status { get; set; } = new();
+    /// <summary>Delete syncs not accessed for this many days (Mongo TTL on
+    /// lastAccessed, applied at startup). 0 = never (default). Keepmark-only:
+    /// Node has no setting, only the manual index in api/README.md.</summary>
+    public int SyncExpiryDays { get; set; }
     public ThrottleSettings Throttle { get; set; } = new();
 
     /// <summary>Effective body limit. Node falls back to 512000 on 0; we default

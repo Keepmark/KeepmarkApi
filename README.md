@@ -37,10 +37,11 @@ ciphertext only.
   Healthchecks, auto-created indexes, rotating file logs and log verbosity
   you can change on the fly, without a restart.
 - **Built to be public.** Per-IP throttling with `Retry-After`, a daily
-  new-sync quota, an origin allow-list, security headers, and sync IDs
-  truncated in every log line.
+  new-sync quota, an origin allow-list, security headers, sync IDs
+  truncated in every log line, and optional deletion of syncs left unused
+  for N days (`SyncExpiryDays`).
 - **Small and auditable.** One runtime dependency (`MongoDB.Driver`), about
-  2k lines of logic, 156 unit tests plus live contract scripts.
+  2k lines of logic, 182 unit tests plus live contract scripts.
 
 ## What v1.2 adds
 

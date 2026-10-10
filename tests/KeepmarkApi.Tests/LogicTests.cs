@@ -510,4 +510,76 @@ public sealed class LogicTests
         await Assert.ThrowsAsync<SyncNotFoundException>(() =>
             logic.UpdateV2Async(SyncId.ToString(SyncId.New()), "x", null, null, Now, baseRevision: 1));
     }
+
+    // ---- sync expiry (lastAccessed TTL) ----
+
+    [Theory]
+    [InlineData(0, false, null, ExpiryIndexAction.None)]
+    [InlineData(0, true, null, ExpiryIndexAction.None)] // plain index: not ours
+    [InlineData(0, true, 1814400L, ExpiryIndexAction.Drop)] // manual Node 21-day TTL
+    [InlineData(21, false, null, ExpiryIndexAction.Create)]
+    [InlineData(21, true, 1814400L, ExpiryIndexAction.None)] // adopts the Node index
+    [InlineData(30, true, 1814400L, ExpiryIndexAction.Recreate)]
+    [InlineData(21, true, null, ExpiryIndexAction.Recreate)] // plain index becomes TTL
+    [InlineData(21, true, 1814399L, ExpiryIndexAction.Recreate)] // off by one second
+    [InlineData(1, false, null, ExpiryIndexAction.Create)]
+    [InlineData(1, true, 86400L, ExpiryIndexAction.None)]
+    [InlineData(0, true, 0L, ExpiryIndexAction.Drop)] // expire-immediately TTL is still a TTL
+    public void SyncExpiry_DecidesIndexAction(int days, bool exists, long? ttl, ExpiryIndexAction expected)
+        => Assert.Equal(expected, SyncExpiryRules.Decide(days, exists, ttl));
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, true)]
+    [InlineData(21, true)]
+    [InlineData(SyncExpiryRules.MaxDays, true)]
+    [InlineData(SyncExpiryRules.MaxDays + 1, false)]
+    public void SyncExpiry_ValidatesDays(int days, bool valid)
+        => Assert.Equal(valid, SyncExpiryRules.IsValidDays(days));
+
+    [Fact]
+    public void SyncExpiry_TtlSeconds()
+    {
+        Assert.Null(SyncExpiryRules.TtlSeconds(0));
+        Assert.Null(SyncExpiryRules.TtlSeconds(-5));
+        Assert.Equal(86400L, SyncExpiryRules.TtlSeconds(1));
+        Assert.Equal(1814400L, SyncExpiryRules.TtlSeconds(21)); // api/README.md: 21*86400
+        // MaxDays still fits Mongo's int32 expireAfterSeconds.
+        Assert.True(SyncExpiryRules.TtlSeconds(SyncExpiryRules.MaxDays) <= int.MaxValue);
+    }
+
+    [Fact]
+    public void SyncExpiry_DisabledByDefault()
+        => Assert.Equal(0, new XbsSettings().SyncExpiryDays);
+
+    public static TheoryData<KeyValuePair<string, double?>[], bool> ExpiryKeys() => new()
+    {
+        { [new("lastAccessed", 1)], true },
+        { [new("lastAccessed", 1.0)], true }, // legacy shell stores doubles
+        { [new("lastAccessed", -1)], false },
+        { [new("lastAccessed", null)], false }, // "hashed" / "text"
+        { [new("lastUpdated", 1)], false },
+        { [new("lastAccessed", 1), new("_id", 1)], false }, // compound
+        { [], false },
+    };
+
+    [Theory]
+    [MemberData(nameof(ExpiryKeys))]
+    public void SyncExpiry_MatchesOnlyTheLastAccessedKey(KeyValuePair<string, double?>[] key, bool expected)
+        => Assert.Equal(expected, SyncExpiryRules.IsLastAccessedKey(key));
+
+    [Fact]
+    public async Task SyncExpiry_MetadataReadsNeverTouchEvenWhenEnabled()
+    {
+        // REQ-H1: HEAD / 304 stay read-only; only full reads refresh lastAccessed.
+        var store = new FakeBookmarkStore();
+        var logic = new BookmarksLogic(store, new FakeSyncLogStore(), Settings(s => s.SyncExpiryDays = 21));
+        var id = SeedLegacy(store);
+        await logic.GetMetadataAsync(id);
+        Assert.Empty(store.Touched);
+        Assert.Equal(Earlier, (await store.FindByIdAsync(SyncId.Parse(id), default))!.LastAccessed);
+
+        await logic.GetLastUpdatedAsync(id, Now);
+        Assert.Equal(Now, (await store.FindByIdAsync(SyncId.Parse(id), default))!.LastAccessed);
+    }
 }

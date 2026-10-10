@@ -205,7 +205,8 @@ except `304` (§6.4) and `204` (favicon missing).
 
 - **REQ-H1.** Read-only: MUST NOT touch `lastAccessed` (metadata polling neither
   extends TTL nor costs a write). Operator note: with the optional
-  `bookmarks.lastAccessed` TTL index (`api/README.md`, 3 weeks), a client that
+  `bookmarks.lastAccessed` TTL (`SyncExpiryDays`, or the manual index from
+  `api/README.md`, 3 weeks), a client that
   polled ONLY via `HEAD`/`304` would let its sync expire; Keepmark clients also
   call `GET …/lastUpdated` (touching) on every poll. Headers: `ETag: "<hash>"` (only when hash
   non-null), `Last-Modified` (`.000` format), `X-Sync-Revision`, `X-Sync-Size`.
@@ -289,7 +290,10 @@ except `304` (§6.4) and `204` (favicon missing).
   all by-ID filters pin the subtype. Declared as `BsonBinaryData`, never `Guid`.
 - **REQ-P3 — Indexes (created at every startup).** `newsynclogs.expiresAt` TTL
   (`expireAfter: Zero`); single `ipAddress`; compound `(ipAddress, expiresAt)`
-  keeping the per-create count an index-only scan.
+  keeping the per-create count an index-only scan. `bookmarks.lastAccessed`
+  TTL converged to `SyncExpiryDays` (`SyncExpiryRules.Decide`): `> 0` creates it,
+  or drops + recreates an index with a different/no TTL (no `collMod`: the
+  `readWrite` user lacks it); `0` drops an existing TTL and leaves a plain index.
 - **REQ-P4 — Connection.** URL-escaped `user:password@`, `authSource` appended when
   non-empty; `UseSrv` → `mongodb+srv://` + TLS; `Ssl` → TLS; `ConnTimeout` honoured.
   Empty username/password fall back to `XBROWSERSYNC_DB_USER` / `XBROWSERSYNC_DB_PWD`.
@@ -323,6 +327,7 @@ tracked `{}` placeholder `appsettings.Local.json`.
 | `Db.ConnTimeout` | `30000` ms | — |
 | `Db.UseSrv/Db.Ssl` | `false` | TLS triggers |
 | `Location` | `""` | ISO code, uppercased; invalid → exit 1 (§8.2) |
+| `SyncExpiryDays` | `0` (never) | `0..MaxDays` (int32 seconds), else exit 1; drives the lastAccessed TTL (REQ-P3) |
 | `Log.Stdout.Enabled/Level` | `true/info` | `false` removes console sink |
 | `Log.File.Enabled/Level/Path` | `true/info//var/log/xBrowserSync/api.log` | §9.2 |
 | `Log.File.RotationPeriod` | `1d` | `$n$scope` ms/s/m/h/d/w/M/y or hourly/daily/weekly/monthly/yearly |
@@ -440,13 +445,15 @@ tracked `{}` placeholder `appsettings.Local.json`.
 
 ## 11. Test evidence (what exists, what must stay green)
 
-- **REQ-T1 — Unit.** `dotnet test` — 156 xUnit, no infrastructure. Covers: version
+- **REQ-T1 — Unit.** `dotnet test` — 182 xUnit, no infrastructure. Covers: version
   dispatch matrix (incl. `1.1.2 → v2`, `v1.2.0 → v2`), request coercion
   (`42 → "42"`, objects → absent), error map, timestamp truncation/parsing
   (`.87 == .870`), SyncId round-trip/rejection, CAS win/lose/missing via fakes
   (timestamp AND revision), revision lifecycle incl. legacy `revision: 0`,
   legacy shape freeze (no `meta`/`capabilities` keys), levels/redaction, file
-  rotation determinism (injected clock), retention.
+  rotation determinism (injected clock), retention, sync-expiry index decisions
+  (create/keep/recreate/drop matrix, key matching, day bounds, no touch on
+  metadata reads). The index apply step itself is live-only (Mongo).
 - **REQ-T2 — Live v1 parity.** `BASE=… ./scripts/e2e-v1.sh` — 26 curl checks
   (info, create/get/put/lastUpdated/version, stale-put 409, bad-ID 401, guards,
   unknown-route 404 shape, v1-missing-put `200 {}`, malformed-JSON 500). Requires
@@ -542,7 +549,7 @@ For each item: state PASS/FAIL with file:line + reproduction (command or test na
 
 ```sh
 cd KeepmarkApi
-dotnet test                                   # unit, no infra (expect 156 pass)
+dotnet test                                   # unit, no infra (expect 182 pass)
 cp .env.example .env                          # set real passwords, chmod 600 .env
 docker compose up --build -d                  # API :8080 in-container
 BASE=http://localhost:<API_PORT> ./scripts/e2e-v1.sh    # expect 26/26

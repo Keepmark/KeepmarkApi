@@ -10,7 +10,7 @@ The reference Node service lives in `../api` of the development checkout.
 ## Status
 
 - Contract: v1.1.x frozen (Node parity) + v1.2 extended (opt-in, see below).
-- Tests: 156 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
+- Tests: 182 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
   `scripts/e2e-v12.sh` (19 checks) against live Mongo, all green.
 - Verified compat matrix: new⇄old clients/servers, concurrent-push chaos —
   see [Testing](#testing).
@@ -28,7 +28,7 @@ The reference Node service lives in `../api` of the development checkout.
     contract shaping legacy/extended), `InfoController` (`/info` + v1.2
     `capabilities`), `RootController` (landing page with logo, status, credits).
   - `Data/` — `MongoContext` (connection builder, `XBROWSERSYNC_DB_*` fallback,
-    TTL + `ipAddress` indexes) + `MongoStores` (timed operations).
+    TTL + `ipAddress` indexes, `SyncExpiryDays` TTL) + `MongoStores` (timed operations).
   - `Middleware/` — `ErrorHandlerMiddleware` (`XbsException` → status,
     body-too-large → 413, routing 404/405 → 404 shape, rest → 500),
     `OriginGuardMiddleware` (exact-string origins only).
@@ -81,7 +81,8 @@ legacy clients only enforce the minimum (`1.1.9`), so nothing breaks.
 - Timestamps are millisecond-precision (`toISOString` format). The server
   truncates writes to ms and compares instants, not strings, so equivalent
   spellings (`.87` vs `.870`) agree; unparseable bases conflict.
-- `GET` (all forms) refreshes `lastAccessed` (TTL source). Missing sync →
+- `GET` (all forms) refreshes `lastAccessed` (source of the optional
+  `SyncExpiryDays` TTL). Missing sync →
   `401 SyncNotFoundException` (Node convention, kept). Malformed ID → `401
   InvalidSyncIdException`.
 - The server never sees plaintext and cannot merge: conflict resolution is
@@ -109,6 +110,7 @@ tracked `{}` placeholder — credentials belong in `.env` (chmod 600).
 | `Server.BehindProxy` | `false` | trust `X-Forwarded-For` **only** behind a proxy |
 | `Server.Https.*` | disabled | direct HTTPS + HSTS; else terminate at a proxy |
 | `Status.*` | online, new syncs ok | `message` supports markdown, scripts stripped |
+| `SyncExpiryDays` | `0` (never) | delete syncs not accessed for N days: startup creates/updates/drops the `bookmarks.lastAccessed` TTL index (adopts the manual Node one; `0` drops a TTL) |
 | `Throttle.*` | `1000` / 5 min | per IP, `0` disables, `Retry-After` on 429 |
 
 ## Run
@@ -145,7 +147,9 @@ a healthy mongo (`depends_on: service_healthy`). Container stdout is capped
 Notes: the API listens on 8080 in-container (mapped via `API_PORT`, default
 `8080` — here `8090` to avoid a host clash). Home-directory encryption on some
 hosts breaks container **writes** on bind mounts, hence named volumes for logs
-and dumps. `appsettings.Local.json` is mounted for hot edits (log level).
+and dumps. `appsettings.Local.json` is mounted for hot edits (log level). Optional
+inactive-sync expiry: `SYNC_EXPIRY_DAYS` (see
+[Inactive sync expiry](#inactive-sync-expiry)).
 
 ## Logging & verbosity
 
@@ -198,6 +202,31 @@ rotating them later needs `db.updateUser()` in mongosh, then a restart.
    `Server__BehindProxy=true` so IPs are real. HSTS is the proxy's job.
 2. **Direct:** mount cert+key, set `Server__Https__*`; the API emits HSTS itself.
 
+### Inactive sync expiry
+
+Off by default (`SyncExpiryDays: 0`): syncs are kept forever, as on a Node
+service without the optional index. Set `SyncExpiryDays` (`SYNC_EXPIRY_DAYS`
+in Docker) to delete syncs nobody has read or written for N days; `21`
+matches the 3 weeks suggested in `api/README.md`. Mongo's TTL monitor does the
+deleting (about once a minute), on the `bookmarks.lastAccessed` index.
+
+Every startup converges that index to the setting:
+
+| Index found | `SyncExpiryDays > 0` | `SyncExpiryDays = 0` |
+|---|---|---|
+| none | create TTL | nothing |
+| TTL, same seconds (e.g. the manual Node one with `21`) | keep | drop (warning logged) |
+| TTL, other seconds | drop + recreate | drop (warning logged) |
+| plain, no TTL | drop + recreate as TTL | keep (not ours) |
+
+Changes are drop + create (the `readWrite` DB user cannot `collMod`); nothing
+expires in between. Out of range (`< 0` or above the int32-seconds cap) →
+exit 1. Reads that refresh `lastAccessed`: create, every `GET` (full,
+`/lastUpdated`, `/version`) and every write. `HEAD` and `304` conditional GETs
+do **not** (REQ-H1); Keepmark clients also call `/lastUpdated` on each poll, so
+an active sync never expires. Expired syncs return `401 SyncNotFoundException`
+(same as a deleted one).
+
 ### Rate limits
 
 Per-IP fixed window, `429 {code:RequestThrottledException}` + `Retry-After`
@@ -206,7 +235,7 @@ seconds. Tune `throttle.*`; `0` disables (restart to apply).
 ## Testing
 
 ```sh
-dotnet test                                # 156 xUnit, no infra
+dotnet test                                # 182 xUnit, no infra
 BASE=http://localhost:8090 ./scripts/e2e-v1.sh    # 26 contract checks, live
 BASE=http://localhost:8090 ./scripts/e2e-v12.sh   # 19 v1.2 checks, live
 ```

@@ -301,6 +301,54 @@ public static class SyncLogRules
     public static DateTime ExpiresAt(DateTime now) => now.ToUniversalTime().Date.AddDays(1);
 }
 
+/// <summary>What startup does to the bookmarks.lastAccessed TTL index.</summary>
+public enum ExpiryIndexAction
+{
+    None,
+    Create,
+    Recreate,
+    Drop,
+}
+
+/// <summary>Inactive-sync expiry (SyncExpiryDays). Node leaves it to a manual
+/// TTL index (api/README.md suggests 3 weeks); here the setting owns the index:
+/// every startup converges it to the configured value, 0 removes it. Pure
+/// decision — MongoContext applies it.</summary>
+public static class SyncExpiryRules
+{
+    /// <summary>Mongo caps expireAfterSeconds at int32 max (~68 years).</summary>
+    public const int MaxDays = int.MaxValue / 86400;
+
+    public static bool IsValidDays(int days) => days is >= 0 and <= MaxDays;
+
+    public static long? TtlSeconds(int days) => days > 0 ? days * 86400L : null;
+
+    /// <summary>True when an index key is exactly <c>{lastAccessed: 1}</c>.
+    /// Directions arrive as int or double (mongosh vs legacy shell); non-numeric
+    /// ones ("hashed", "text") are passed as null. Compound keys never match.</summary>
+    public static bool IsLastAccessedKey(IReadOnlyList<KeyValuePair<string, double?>> key)
+        => key.Count == 1 && key[0].Key == "lastAccessed" && key[0].Value == 1;
+
+    /// <param name="exists">An index keyed exactly <c>{lastAccessed: 1}</c> exists.</param>
+    /// <param name="currentTtlSeconds">Its expireAfterSeconds; null when it is not a TTL index.</param>
+    public static ExpiryIndexAction Decide(int days, bool exists, long? currentTtlSeconds)
+    {
+        var wanted = TtlSeconds(days);
+        if (wanted is null)
+        {
+            // Disabled: remove a TTL (it would keep deleting), leave a plain index alone.
+            return exists && currentTtlSeconds is not null ? ExpiryIndexAction.Drop : ExpiryIndexAction.None;
+        }
+
+        if (!exists)
+        {
+            return ExpiryIndexAction.Create;
+        }
+
+        return currentTtlSeconds == wanted ? ExpiryIndexAction.None : ExpiryIndexAction.Recreate;
+    }
+}
+
 /// <summary>Extension over ISyncLogStore expressing the Node service defaults
 /// (missing IP → no tracking, returns false like the Node null return).</summary>
 public static class SyncLogStoreExtensions

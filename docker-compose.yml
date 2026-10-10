@@ -49,6 +49,8 @@ services:
       Status__Message: "Welcome to my Keepmark service!"
       # Per-IP new syncs per UTC day (0 = disabled). Raise for QA/test rigs.
       DailyNewSyncsLimit: ${DAILY_NEW_SYNCS_LIMIT:-3}
+      # Delete syncs not accessed for N days (0 = never). Applied at startup.
+      SyncExpiryDays: ${SYNC_EXPIRY_DAYS:-0}
       Log__Stdout__Level: ${LOG_LEVEL:-info}
       Log__File__Path: /app/logs/api.log
       XBROWSERSYNC_DB_USER: ${XBROWSERSYNC_DB_USER}

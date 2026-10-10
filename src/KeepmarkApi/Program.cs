@@ -63,6 +63,12 @@ if (!IsValidLocation(settings.Location))
     return 1;
 }
 
+if (!SyncExpiryRules.IsValidDays(settings.SyncExpiryDays))
+{
+    Console.Error.WriteLine($"SyncExpiryDays must be 0-{SyncExpiryRules.MaxDays}, exiting");
+    return 1;
+}
+
 // Body cap mirrors express.json({limit: maxSyncSize}).
 builder.WebHost.ConfigureKestrel(kestrel =>
 {
@@ -229,11 +235,12 @@ app.UseStaticFiles();
 
 app.MapControllers();
 
-// TTL + ipAddress indexes from api/README.md (plus Mongo connection check).
+// TTL + ipAddress indexes from api/README.md, lastAccessed TTL per
+// SyncExpiryDays (plus Mongo connection check).
 try
 {
     await app.Services.GetRequiredService<MongoContext>()
-        .EnsureIndexesAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
+        .EnsureIndexesAsync(settings.SyncExpiryDays, app.Logger, app.Lifetime.ApplicationStopping).ConfigureAwait(false);
 }
 catch (Exception ex)
 {
@@ -256,7 +263,7 @@ static string DescribeSettings(XbsSettings s)
     + $"db={s.Db.Host}:{s.Db.Port}/{s.Db.Name} authSource={s.Db.AuthSource} user={s.Db.Username} ssl={s.Db.Ssl} srv={s.Db.UseSrv} "
     + $"location={s.Location} maxSyncs={s.MaxSyncs} maxSyncSize={s.MaxSyncSize} "
     + $"behindProxy={s.Server.BehindProxy} https={s.Server.Https.Enabled} relativePath={s.Server.RelativePath} "
-    + $"allowNewSyncs={s.Status.AllowNewSyncs} online={s.Status.Online} "
+    + $"allowNewSyncs={s.Status.AllowNewSyncs} online={s.Status.Online} syncExpiryDays={s.SyncExpiryDays} "
     + $"throttle={s.Throttle.MaxRequests}/{s.Throttle.TimeWindow}ms";
 
 static bool IsValidLocation(string location)
