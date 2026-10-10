@@ -65,7 +65,59 @@ curl localhost:8080/info
 ```
 
 The [developer guide](docs/DEVELOPMENT.md#docker) covers volume ownership,
-TLS, backups and every configuration key.
+TLS and backups.
+
+## Configuration
+
+### Docker Compose (`.env`)
+
+Set these in `.env` (copied from `.env.example`) before `docker compose up`.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `MONGO_ROOT_USER` / `MONGO_ROOT_PASSWORD` | — (required) | MongoDB admin account, created on the first start only |
+| `XBROWSERSYNC_DB_USER` / `XBROWSERSYNC_DB_PWD` | — (required) | Least-privilege account the API uses to connect |
+| `API_PORT` | `8080` | Host port the API is published on |
+| `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error` or `fatal` |
+| `DAILY_NEW_SYNCS_LIMIT` | `3` | New syncs allowed per IP per UTC day, `0` = no limit |
+| `SYNC_EXPIRY_DAYS` | `0` | Delete syncs not read or written for this many days, `0` = never |
+
+### Every setting
+
+All settings live in `src/KeepmarkApi/appsettings.json`, with the same names
+as the xBrowserSync `settings.json`. Override any of them with an environment
+variable, using `__` for nested keys (`Status__Message`, `Throttle__MaxRequests`),
+either in the `environment:` block of `docker-compose.yml` or in your shell.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `AllowedOrigins` | `[]` | Allowed `Origin` values (exact strings), empty = any; as env: `AllowedOrigins__0`, `AllowedOrigins__1`, … |
+| `DailyNewSyncsLimit` | `3` | New syncs per IP per UTC day, `0` = no limit |
+| `Db__Host` / `Db__Port` / `Db__Name` | `127.0.0.1` / `27017` / `xbrowsersync` | MongoDB location (`mongo` in Docker) |
+| `Db__Username` / `Db__Password` | empty | Empty = use `XBROWSERSYNC_DB_USER` / `XBROWSERSYNC_DB_PWD` |
+| `Db__AuthSource` | `admin` | Database that holds the user |
+| `Db__ConnTimeout` | `30000` | Connection timeout, ms |
+| `Db__UseSrv` / `Db__Ssl` | `false` | `mongodb+srv://` URL / TLS to MongoDB |
+| `Location` | empty | Two-letter country code shown in `/info` |
+| `Log__Stdout__Enabled` / `Log__Stdout__Level` | `true` / `info` | Console log |
+| `Log__File__Enabled` / `Log__File__Level` | `true` / `info` | File log |
+| `Log__File__Path` | `/var/log/xBrowserSync/api.log` | Log file (`/app/logs/api.log` in Docker) |
+| `Log__File__RotationPeriod` / `Log__File__RotatedFilesToKeep` | `1d` / `5` | Log rotation |
+| `MaxSyncs` | `5242` | Total syncs before new ones are refused, `0` = unlimited |
+| `MaxSyncSize` | `1048576` | Max sync size in bytes (1 MB) |
+| `Server__Port` | `8080` | Listening port (all interfaces) |
+| `Server__RelativePath` | `/` | Base path when served under a sub-path (e.g. `/api`) |
+| `Server__Host` | `127.0.0.1` | Informational only, not a bind address: restrict exposure with a firewall or proxy |
+| `Server__BehindProxy` | `false` | Trust `X-Forwarded-For`; enable **only** behind your own proxy |
+| `Server__Https__Enabled` / `CertPath` / `KeyPath` | `false` | Serve HTTPS directly with PEM cert and key |
+| `Status__Online` | `true` | `false` = service reported offline, requests refused |
+| `Status__AllowNewSyncs` | `true` | `false` = existing syncs work, new ones refused |
+| `Status__Message` | empty | Message shown to users in `/info` (markdown) |
+| `SyncExpiryDays` | `0` | Delete syncs not read or written for N days, `0` = never ([details](docs/DEVELOPMENT.md#inactive-sync-expiry)) |
+| `Throttle__MaxRequests` / `Throttle__TimeWindow` | `1000` / `300000` | Requests per IP per window (ms), `0` = off |
+
+Only the log level changes without a restart (edit `appsettings.Local.json`);
+everything else applies at startup.
 
 ## Already running xBrowserSync?
 
