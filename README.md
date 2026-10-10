@@ -15,6 +15,10 @@
   <img src="https://img.shields.io/badge/license-AGPL--3.0--only-4a5170" alt="AGPL-3.0-only" />
 </p>
 
+<p align="center">
+  <img src="docs/img/ecosystem.png" alt="Keepmark in a browser and on Android: the same encrypted bookmarks everywhere" />
+</p>
+
 ---
 
 Keepmark Server stores encrypted bookmark syncs for xBrowserSync and
