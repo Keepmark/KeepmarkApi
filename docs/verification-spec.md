@@ -133,7 +133,8 @@ except `304` (§6.4) and `204` (favicon missing).
 ### 4.1 `GET /info`
 
 - **REQ-I1 — Shape.** `L: {location, maxSyncSize, message, status, version}`.
-  `X:` adds `capabilities: {revision:true, conditionalGet:true, delete:true}`.
+  `X:` adds `capabilities: {revision:true, conditionalGet:true, delete:true,
+  syncExpiryDays:<SyncExpiryDays>}` (int, `0` = syncs never expire).
 - **REQ-I2 — Fields.** `location`: config value uppercased, or `""` (key present,
   empty string — never omitted, never null). `maxSyncSize`: configured value.
   `message`: status message with `<script>…</script>` stripped (and ONLY that —
@@ -445,7 +446,7 @@ tracked `{}` placeholder `appsettings.Local.json`.
 
 ## 11. Test evidence (what exists, what must stay green)
 
-- **REQ-T1 — Unit.** `dotnet test` — 182 xUnit, no infrastructure. Covers: version
+- **REQ-T1 — Unit.** `dotnet test` — 185 xUnit, no infrastructure. Covers: version
   dispatch matrix (incl. `1.1.2 → v2`, `v1.2.0 → v2`), request coercion
   (`42 → "42"`, objects → absent), error map, timestamp truncation/parsing
   (`.87 == .870`), SyncId round-trip/rejection, CAS win/lose/missing via fakes
@@ -458,7 +459,7 @@ tracked `{}` placeholder `appsettings.Local.json`.
   (info, create/get/put/lastUpdated/version, stale-put 409, bad-ID 401, guards,
   unknown-route 404 shape, v1-missing-put `200 {}`, malformed-JSON 500). Requires
   fresh-ish DB (wipe `bookmarks` + `newsynclogs` first; daily limit is 3/IP).
-- **REQ-T3 — Live v1.2.** `BASE=… ./scripts/e2e-v12.sh` — 19 checks (meta on all
+- **REQ-T3 — Live v1.2.** `BASE=… ./scripts/e2e-v12.sh` — 20 checks (meta on all
   responses, `baseRevision` win/conflict, `HEAD` headers, conditional `304`,
   `DELETE`, legacy `404` on HEAD/DELETE, legacy shape regression).
 - **REQ-T4 — Concurrency proof.** Same-base race harness → `[200,409]` on this
@@ -466,7 +467,7 @@ tracked `{}` placeholder `appsettings.Local.json`.
   timestamp and revision bases; plus dirty/pull-refusal scenarios per client rules.
 - **REQ-T5 — Compat matrix (last verified).** v1.1 contract 24/24 against both
   servers; .NET client live 6/6 (legacy fallback vs Node, v1.2 vs here);
-  v1.2 19/19 here (n/a on Node).
+  v1.2 20/20 here (n/a on Node).
 
 ---
 
@@ -549,11 +550,11 @@ For each item: state PASS/FAIL with file:line + reproduction (command or test na
 
 ```sh
 cd KeepmarkApi
-dotnet test                                   # unit, no infra (expect 182 pass)
+dotnet test                                   # unit, no infra (expect 185 pass)
 cp .env.example .env                          # set real passwords, chmod 600 .env
 docker compose up --build -d                  # API :8080 in-container
 BASE=http://localhost:<API_PORT> ./scripts/e2e-v1.sh    # expect 26/26
-BASE=http://localhost:<API_PORT> ./scripts/e2e-v12.sh   # expect 19/19
+BASE=http://localhost:<API_PORT> ./scripts/e2e-v12.sh   # expect 20/20
 ```
 
 Wipe between live runs (daily limit is 3/IP):

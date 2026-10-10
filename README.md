@@ -41,7 +41,7 @@ ciphertext only.
   truncated in every log line, and optional deletion of syncs left unused
   for N days (`SyncExpiryDays`).
 - **Small and auditable.** One runtime dependency (`MongoDB.Driver`), about
-  2k lines of logic, 182 unit tests plus live contract scripts.
+  2k lines of logic, 185 unit tests plus live contract scripts.
 
 ## What v1.2 adds
 
@@ -51,7 +51,8 @@ Clients opt in with `Accept-Version: ^1.2.0`; everyone else gets v1.1.
   revision-based conflict detection.
 - **Cheap "anything new?" checks:** `HEAD` and conditional `GET` with `304`.
 - **Delete a sync** from the server (`DELETE`).
-- **Capabilities** advertised in `/info`, so clients pick features safely.
+- **Capabilities** advertised in `/info`, so clients pick features safely,
+  including how many days an unused sync is kept (`syncExpiryDays`, `0` = forever).
 
 Keepmark for browsers and Keepmark for Android use v1.2 automatically when
 the server offers it.

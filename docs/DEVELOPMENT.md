@@ -10,8 +10,8 @@ The reference Node service lives in `../api` of the development checkout.
 ## Status
 
 - Contract: v1.1.x frozen (Node parity) + v1.2 extended (opt-in, see below).
-- Tests: 182 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
-  `scripts/e2e-v12.sh` (19 checks) against live Mongo, all green.
+- Tests: 185 xUnit (no infra) + `scripts/e2e-v1.sh` (26 checks) +
+  `scripts/e2e-v12.sh` (20 checks) against live Mongo, all green.
 - Verified compat matrix: new⇄old clients/servers, concurrent-push chaos —
   see [Testing](#testing).
 - **Run a public service?** Start with [`operators.md`](operators.md):
@@ -56,7 +56,7 @@ Error shape is always `{code, message}` with the Node status codes.
 
 | Call | v1.1 | v1.2 (`^1.2.0`) |
 |---|---|---|
-| `GET /info` | `{location, maxSyncSize, message, status, version}` | + `capabilities {revision, conditionalGet, delete}` |
+| `GET /info` | `{location, maxSyncSize, message, status, version}` | + `capabilities {revision, conditionalGet, delete, syncExpiryDays}` |
 | `POST /bookmarks` | `~1.0.0`: `{bookmarks}` · `^1.1.3`: `{version}` | same, + `meta` in response |
 | `GET /bookmarks/:id` | `{bookmarks, version, lastUpdated}` | + `meta`; honors `If-None-Match` → `304` (ignored outside v1.2) |
 | `PUT /bookmarks/:id` | v1: blind write · v2: `lastUpdated` base check → `409` | + `baseRevision` (atomic CAS on revision, wins over timestamp) |
@@ -225,7 +225,8 @@ exit 1. Reads that refresh `lastAccessed`: create, every `GET` (full,
 `/lastUpdated`, `/version`) and every write. `HEAD` and `304` conditional GETs
 do **not** (REQ-H1); Keepmark clients also call `/lastUpdated` on each poll, so
 an active sync never expires. Expired syncs return `401 SyncNotFoundException`
-(same as a deleted one).
+(same as a deleted one). v1.2 clients read the value from
+`/info` → `capabilities.syncExpiryDays` (`0` = never) to warn their users.
 
 ### Rate limits
 
@@ -235,9 +236,9 @@ seconds. Tune `throttle.*`; `0` disables (restart to apply).
 ## Testing
 
 ```sh
-dotnet test                                # 182 xUnit, no infra
+dotnet test                                # 185 xUnit, no infra
 BASE=http://localhost:8090 ./scripts/e2e-v1.sh    # 26 contract checks, live
-BASE=http://localhost:8090 ./scripts/e2e-v12.sh   # 19 v1.2 checks, live
+BASE=http://localhost:8090 ./scripts/e2e-v12.sh   # 20 v1.2 checks, live
 ```
 
 `Core` is runtime-free, so the whole rule matrix (quotas, limits, CAS win/lose,
@@ -251,7 +252,7 @@ Verified compat matrix:
 |---|---|---|
 | v1.1 contract (24) | 24/24 | 24/24 |
 | .NET client live (6) | 6/6 (legacy fallback) | 6/6 (v1.2 negotiated) |
-| v1.2 contract (19) | n/a | 19/19 |
+| v1.2 contract (20) | n/a | 20/20 |
 | same-base race | `[200,200]` (upstream bug) | `[200,409]` |
 
 ## Security & anonymity notes

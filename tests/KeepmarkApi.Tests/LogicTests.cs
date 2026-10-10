@@ -367,6 +367,23 @@ public sealed class LogicTests
         Assert.Null(legacy.Capabilities);
         Assert.NotNull(v12.Capabilities);
         Assert.True(v12.Capabilities!.Revision && v12.Capabilities.ConditionalGet && v12.Capabilities.Delete);
+        Assert.Equal(0, v12.Capabilities.SyncExpiryDays); // default: never expires
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(21)]
+    [InlineData(90)]
+    public async Task Info_ExtendedAdvertisesSyncExpiry(int days)
+    {
+        var s = Settings(x => x.SyncExpiryDays = days);
+        var logic = new InfoLogic(new BookmarksLogic(new FakeBookmarkStore(), new FakeSyncLogStore(), s), s);
+        var v12 = await logic.GetInfoAsync(ct: default, extended: true);
+        Assert.Equal(days, v12.Capabilities!.SyncExpiryDays);
+        Assert.Contains($"\"syncExpiryDays\":{days}", System.Text.Json.JsonSerializer.Serialize(v12));
+        // Legacy shape stays frozen even when expiry is on.
+        var legacy = await logic.GetInfoAsync(ct: default, extended: false);
+        Assert.DoesNotContain("syncExpiryDays", System.Text.Json.JsonSerializer.Serialize(legacy));
     }
 
     [Fact]

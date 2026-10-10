@@ -28,7 +28,7 @@ exactly as before — no migration on their side, ever.
 IDs), plus: security headers + `no-store` by default, per-IP throttling with
 `Retry-After`, origin allow-list, proxied deployments via `X-Forwarded-For`
 only when you say so. Open source (AGPL-3.0) and small enough to audit in an afternoon (~2k LOC of
-logic, 182 unit tests, live contract scripts).
+logic, 185 unit tests, live contract scripts).
 
 ## Migration in 10 minutes (zero user impact)
 
@@ -80,6 +80,10 @@ format (UUID binary subtype 4) and the settings keys are the same.
   `SyncExpiryDays=21` and KeepmarkApi adopts it unchanged. Any other value
   replaces it at startup; `0` (the default) drops it, so syncs stop expiring.
   Details: [Inactive sync expiry](DEVELOPMENT.md#inactive-sync-expiry).
+- **I never created that index. Can I turn expiry on?** Yes, but the first
+  pass deletes every sync already idle longer than the limit, within about a
+  minute of startup. Back up first, and count the affected syncs:
+  `db.bookmarks.countDocuments({lastAccessed: {$lt: new Date(Date.now() - 21*86400000)}})`.
 - **Can I keep my domain/message/location?** Yes — all surfaced in `/info` as before.
 - **License?** AGPL-3.0-only (© 2026 Yari Melzani, see `LICENSE.md`): free to
   run, including public and commercial services. Running it unmodified needs

@@ -391,7 +391,7 @@ public sealed class InfoLogic(BookmarksLogic bookmarks, XbsSettings settings, IL
             Message = HtmlSanitizer.StripScripts(settings.Status.Message),
             Status = (int)ServiceStatus.Offline,
             Version = XbsVersions.ApiVersion,
-            Capabilities = extended ? new CapabilitiesResponse() : null,
+            Capabilities = extended ? new CapabilitiesResponse { SyncExpiryDays = settings.SyncExpiryDays } : null,
         };
 
         if (settings.Status.Online)

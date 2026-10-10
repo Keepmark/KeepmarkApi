@@ -75,6 +75,10 @@ public sealed class CapabilitiesResponse
     public bool ConditionalGet { get; set; } = true;
     [JsonPropertyName("delete")]
     public bool Delete { get; set; } = true;
+    /// <summary>Days of inactivity after which the server deletes a sync
+    /// (SyncExpiryDays); 0 = never. Lets clients warn their users.</summary>
+    [JsonPropertyName("syncExpiryDays")]
+    public int SyncExpiryDays { get; set; }
 }
 
 /// <summary>v1.2 metadata envelope. Only present on the extended contract.</summary>

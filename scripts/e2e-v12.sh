@@ -11,6 +11,7 @@ J() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 echo "--- info capabilities ---"
 chk "legacy info no caps" "False" "$(curl -s -H "Accept-Version: $V11" "$BASE/info" | J "'capabilities' in d")"
 chk "v12 info caps" "True" "$(curl -s -H "Accept-Version: $V12" "$BASE/info" | J "'capabilities' in d")"
+chk "v12 info expiry is int" "True" "$(curl -s -H "Accept-Version: $V12" "$BASE/info" | J "isinstance(d['capabilities']['syncExpiryDays'], int)")"
 chk "v12 info version" "1.2.0" "$(curl -s -H "Accept-Version: $V12" "$BASE/info" | J "d['version']")"
 
 echo "--- create ---"
