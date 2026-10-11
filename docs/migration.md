@@ -17,8 +17,7 @@ same database:
 ```sh
 mongodump --db xbrowsersync --out ~/xbs-backup-$(date +%F)
 
-git clone https://github.com/Keepmark/KeepmarkApi.git keepmark-server && cd keepmark-server
-docker build -t keepmark-server .
+docker pull keepmark/keepmark-api:1.2.0
 
 sudo systemctl stop xbrowsersync      # or however you run the Node service
 
@@ -27,10 +26,15 @@ docker run -d --name keepmark-server --restart unless-stopped --network host \
   -e XBROWSERSYNC_DB_USER=xbrowsersyncdb \
   -e XBROWSERSYNC_DB_PWD='your-db-password' \
   -e Log__File__Enabled=false \
-  keepmark-server
+  keepmark/keepmark-api:1.2.0
 
 curl localhost:8080/info
 ```
+
+The image is published on Docker Hub as
+[`keepmark/keepmark-api`](https://hub.docker.com/r/keepmark/keepmark-api).
+Prefer building it yourself? `git clone` this repository and run
+`docker build -t keepmark/keepmark-api:1.2.0 .` instead of the pull.
 
 Done. Your reverse proxy, TLS and DNS stay as they are, because Keepmark
 Server answers on the same port. `--network host` lets the container reach a
@@ -83,7 +87,7 @@ sudo systemctl stop mongod               # frees port 27017 for the new Mongo
 
 docker compose up -d mongo               # first start creates the DB user
 docker compose exec -T mongo sh -c 'mongorestore -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --archive' < xbs.archive
-docker compose up -d --build
+docker compose up -d                     # pulls keepmark/keepmark-api
 curl localhost:8080/info
 ```
 

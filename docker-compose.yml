@@ -1,5 +1,6 @@
 # KeepmarkApi stack: API (.NET 10) + MongoDB 7.
-# First run: cp .env.example .env  (set real passwords), then docker compose up --build
+# First run: cp .env.example .env  (set real passwords), then docker compose up -d
+# (pulls keepmark/keepmark-api from Docker Hub; add --build to build from source).
 services:
   mongo:
     image: mongo:7.0
@@ -31,6 +32,7 @@ services:
         max-file: "3"
 
   api:
+    image: keepmark/keepmark-api:1.2.0
     build: .
     restart: unless-stopped
     depends_on:

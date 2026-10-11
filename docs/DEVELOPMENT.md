@@ -141,12 +141,38 @@ mongosh --eval "db.getSiblingDB('admin').createUser({user:'xbrowsersyncdb',pwd:'
 
 ```sh
 cp .env.example .env   # set real passwords (chmod 600 .env), set API_PORT if 8080 is taken
-# One-time volume ownership (named volumes start root-owned):
-docker run --rm -v keepmarkapi_api-logs:/data alpine chown 1654:1654 /data
+# One-time: the backup volume starts root-owned, mongo (uid 999) must write it:
 docker run --rm -v keepmarkapi_mongo-dumps:/data alpine chown 999:999 /data
-docker compose up --build -d
+docker compose up -d           # pulls keepmark/keepmark-api:<version> from Docker Hub
+docker compose up -d --build   # or: build from this checkout (same tag)
 curl localhost:${API_PORT:-8080}/info
 ```
+
+The image creates `/app/logs` owned by `app` and sets
+`Log__File__Path=/app/logs/api.log`, so a fresh `api-logs` volume is writable
+without a manual `chown` (volumes created by images before this change need
+`docker run --rm -v keepmarkapi_api-logs:/data alpine chown 1654:1654 /data`).
+
+### Publishing the image
+
+Docker Hub repository: `keepmark/keepmark-api`. The page text lives in
+[`dockerhub.md`](dockerhub.md) (short description in its header comment):
+paste it into Docker Hub > Overview after every change.
+
+1. Bump `<Version>` in `src/KeepmarkApi/KeepmarkApi.csproj`, then update the
+   tag everywhere it is pinned: `docker-compose.yml`, `README.md`,
+   `docs/migration.md`, `docs/dockerhub.md` (`grep -rn "keepmark-api:"`).
+2. Build and smoke-test (`/info` must report the new version):
+
+   ```sh
+   V=1.2.0
+   docker build --pull -t keepmark/keepmark-api:$V -t keepmark/keepmark-api:latest \
+     --label org.opencontainers.image.version=$V \
+     --label org.opencontainers.image.revision=$(git rev-parse --short HEAD) .
+   ```
+
+3. Push both tags (`docker login -u keepmark` with a Read & Write token):
+   `docker push keepmark/keepmark-api:$V && docker push keepmark/keepmark-api:latest`.
 
 Health: API `HEALTHCHECK` hits `/info`, mongo pings itself; the API waits for
 a healthy mongo (`depends_on: service_healthy`). Container stdout is capped

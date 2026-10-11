@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/MongoDB-7-47a248" alt="MongoDB" />
   <img src="https://img.shields.io/badge/xBrowserSync%20API-1.1.13%20%2B%201.2-243878" alt="xBrowserSync API 1.1.13 + 1.2" />
   <img src="https://img.shields.io/badge/license-AGPL--3.0--only-4a5170" alt="AGPL-3.0-only" />
+  <a href="https://hub.docker.com/r/keepmark/keepmark-api"><img src="https://img.shields.io/badge/Docker%20Hub-keepmark%2Fkeepmark--api-1d63ed?logo=docker&logoColor=white" alt="Docker Hub: keepmark/keepmark-api" /></a>
 </p>
 
 <p align="center">
@@ -63,14 +64,24 @@ the server offers it.
 
 ## Quick start
 
+The image is published on Docker Hub as
+**[`keepmark/keepmark-api`](https://hub.docker.com/r/keepmark/keepmark-api)**
+(`1.2.0`, `latest`). The bundled Compose stack runs it with MongoDB 7:
+
 ```sh
-cp .env.example .env          # set real passwords (chmod 600 .env)
-docker compose up --build -d
+git clone https://github.com/Keepmark/KeepmarkApi.git keepmark-server && cd keepmark-server
+cp .env.example .env && chmod 600 .env   # set the four passwords
+docker compose up -d                     # pulls the image; --build builds from source
 curl localhost:8080/info
 ```
 
-The [developer guide](docs/DEVELOPMENT.md#docker) covers volume ownership,
-TLS and backups.
+Expected: `{"location":"","maxSyncSize":1048576,"message":"Welcome to my Keepmark service!","status":1,"version":"1.2.0"}`.
+Then set your server URL in the xBrowserSync or Keepmark app.
+
+No clone needed: the [Docker Hub page](https://hub.docker.com/r/keepmark/keepmark-api)
+has a self-contained `docker-compose.yml` and a `docker run` against an
+existing MongoDB. The [developer guide](docs/DEVELOPMENT.md#docker) covers
+TLS, backups and log levels.
 
 ## Configuration
 
@@ -131,12 +142,12 @@ uses your xBrowserSync MongoDB database as it is, your users change nothing,
 and going back means starting Node again. In short:
 
 ```sh
-docker build -t keepmark-server .
+docker pull keepmark/keepmark-api:1.2.0
 sudo systemctl stop xbrowsersync
 docker run -d --name keepmark-server --restart unless-stopped --network host \
   -e Db__Host=127.0.0.1 -e XBROWSERSYNC_DB_USER=xbrowsersyncdb \
   -e XBROWSERSYNC_DB_PWD='your-db-password' -e Log__File__Enabled=false \
-  keepmark-server
+  keepmark/keepmark-api:1.2.0
 ```
 
 Read the **[migration guide](docs/migration.md)** before switching: backup,
@@ -154,6 +165,8 @@ Project home: <https://github.com/Keepmark>.
 
 ## Documentation
 
+- [Docker Hub page](https://hub.docker.com/r/keepmark/keepmark-api): image tags,
+  standalone Compose file, `docker run`, every environment variable.
 - [Migration guide](docs/migration.md): move from xBrowserSync API, step by step.
 - [Operator guide](docs/operators.md): why switch, FAQ.
 - [Developer and operations guide](docs/DEVELOPMENT.md): layout, API
