@@ -23,6 +23,8 @@ ciphertext only.
 
 - **Source code, issues and full docs:** <https://github.com/Keepmark/KeepmarkApi>
 - **Project home:** <https://github.com/Keepmark>
+- **Keepmark for browsers:** [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/keepmark/),
+  [Chrome Web Store](https://chromewebstore.google.com/detail/jaaekkbgpeiikepahjelfbkfgpjphbhb)
 - **License:** AGPL-3.0-only
 
 ![Keepmark in a browser and on Android](https://raw.githubusercontent.com/Keepmark/KeepmarkApi/master/docs/img/ecosystem.png)
