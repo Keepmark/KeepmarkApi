@@ -158,7 +158,7 @@ settings mapping, the optional sync expiry, checks and rollback.
 | | |
 |---|---|
 | **Keepmark Server** | This service (ASP.NET Core on .NET 10, MongoDB) |
-| **Keepmark for browsers** | Extension for Firefox and Chromium-based browsers (Chrome, Edge, Brave): [Chrome Web Store](https://chromewebstore.google.com/detail/jaaekkbgpeiikepahjelfbkfgpjphbhb), [latest release](https://github.com/Keepmark/KeepmarkApp/releases/latest) |
+| **Keepmark for browsers** | Extension for Firefox and Chromium-based browsers (Chrome, Edge, Brave): [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/keepmark/), [Chrome Web Store](https://chromewebstore.google.com/detail/jaaekkbgpeiikepahjelfbkfgpjphbhb), [latest release](https://github.com/Keepmark/KeepmarkApp/releases/latest) |
 | **Keepmark for Android** | Android 10+ app with search, share-to-Keepmark and app lock: [latest release](https://github.com/Keepmark/KeepmarkMobile/releases/latest) |
 
 Project home: <https://github.com/Keepmark>.
